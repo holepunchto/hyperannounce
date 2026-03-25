@@ -45,7 +45,18 @@ test('announce and emit peers', async (t) => {
 
   t.is(client.seen.length, 1)
   t.alike(client.seen[0].publicKey, server.discovery.keyPair.publicKey)
-  t.is(client.discovery._closestNodes[0].id.buffer.byteLength, 32)
+
+  const closestNodes = client.discovery._closestNodes
+  const bufferSizes = closestNodes.map((node) => node.id.buffer.byteLength)
+
+  t.ok(bufferSizes.length > 1)
+
+  t.is(bufferSizes[0], 32, 'unslabbed closestNodes entry')
+  t.is(
+    bufferSizes.filter((size) => size !== 32).length,
+    0,
+    'sanity check: all closestNodes are unslabbed'
+  )
 
   await client.destroy()
   await server.destroy()
