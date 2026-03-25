@@ -55,13 +55,6 @@ module.exports = class PeerDiscovery {
   get announce() {
     return this._announce
   }
-  // legacy
-  get isServer() {
-    return this._announce
-  }
-  get isClient() {
-    return !this._announce
-  }
 
   setAnnounce(announce) {
     announce = !!announce
@@ -91,8 +84,6 @@ module.exports = class PeerDiscovery {
     return !this.destroyed && !this.suspended
   }
 
-  // TODO: Allow announce to be an argument to this
-  // TODO: Maybe announce should be a setter?
   async _refresh() {
     if (this.suspended) return
     const clock = ++this._refreshes
@@ -103,7 +94,7 @@ module.exports = class PeerDiscovery {
       if (clock !== this._refreshes || !this._isActive()) return
     }
 
-    const clear = this.isServer && this._firstAnnounce
+    const clear = this.announce && this._firstAnnounce
     if (clear) this._firstAnnounce = false
 
     const opts = {
@@ -111,13 +102,13 @@ module.exports = class PeerDiscovery {
       closestNodes: this._closestNodes
     }
 
-    if (this.isServer) this._needsUnannounce = true
+    if (this.announce) this._needsUnannounce = true
 
     let limit = this.limit
 
     this._discovered.clear()
 
-    const announcing = this.isServer
+    const announcing = this.announce
 
     let query
     if (announcing) {
@@ -132,7 +123,7 @@ module.exports = class PeerDiscovery {
 
     try {
       for await (const data of query) {
-        if (!this.isClient || !this._isActive()) continue
+        if (!this._isActive()) continue
         if (typeof data.bump === 'number' && data.bump > this.bump) {
           this.bump = data.bump
         }
