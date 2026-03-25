@@ -6,7 +6,7 @@ DHT discovery session for [`replicator`](https://github.com:holepunchto/replicat
 
 ```js
 const DHT = require('hyperdht')
-const PeerDiscovery = require('@holepunchto/replicator-discovery')
+const Discovery = require('@holepunchto/replicator-discovery')
 
 const dht = new DHT({ bootstrap })
 await dht.ready()
@@ -14,7 +14,7 @@ await dht.ready()
 const server = dht.createServer()
 await server.listen()
 
-const discovery = new PeerDiscovery(dht, topic, {
+const discovery = new Discovery(dht, topic, {
   announce: true,
   seed,
   relayAddresses: () => server.relayAddresses,
@@ -34,7 +34,7 @@ await dht.destroy()
 
 ## API
 
-### `new PeerDiscovery(dht, topic, opts)`
+### `new Discovery(dht, topic, opts)`
 
 Options:
 
