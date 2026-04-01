@@ -176,6 +176,7 @@ module.exports = class PeerDiscovery {
     try {
       await refresh
     } catch {
+      // NOTE: handler squelches errors from onpeer (copy of original)
       return false
     } finally {
       if (refresh === this._currentRefresh) {
