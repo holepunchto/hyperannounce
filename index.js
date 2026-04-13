@@ -174,16 +174,11 @@ module.exports = class PeerDiscovery {
 
     try {
       await refresh
-<<<<<<< Updated upstream
-    } catch {
-      // NOTE: handler squelches errors from onpeer (copy of original)
-=======
     } catch (err) {
       // TODO: do not silence onpeer errors
       // https://github.com/holepunchto/hyperswarm/blob/6abaa28a2f3b76b7802b57ff2c677cb63c9131b9/lib/peer-discovery.js#L181
       if (this._verbose) console.error(err)
 
->>>>>>> Stashed changes
       return false
     } finally {
       if (refresh === this._currentRefresh) {
