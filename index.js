@@ -22,7 +22,8 @@ module.exports = class PeerDiscovery {
       onerror = safetyCatch,
       seed = null,
       keyPair = DHT.keyPair(seed),
-      relayAddresses = () => [] // dht.server.relayAdderesses
+      relayAddresses = () => [],
+      verbose = false
     } = {}
   ) {
     this.dht = dht
@@ -50,6 +51,7 @@ module.exports = class PeerDiscovery {
     this._needsUnannounce = false
     this._refreshes = 0
     this._wait = wait
+    this._verbose = verbose
   }
 
   get announce() {
@@ -155,13 +157,10 @@ module.exports = class PeerDiscovery {
       }
     }
 
-    // This is set at the very end, when the query completes successfully.
     this._closestNodes = query.closestNodes
     this.lastRefreshed = Date.now()
 
     if (clock !== this._refreshes) return
-
-    // In this is the latest query, unannounce has been fulfilled as well
     if (!announcing) this._needsUnannounce = false
   }
 
@@ -175,8 +174,16 @@ module.exports = class PeerDiscovery {
 
     try {
       await refresh
+<<<<<<< Updated upstream
     } catch {
       // NOTE: handler squelches errors from onpeer (copy of original)
+=======
+    } catch (err) {
+      // TODO: do not silence onpeer errors
+      // https://github.com/holepunchto/hyperswarm/blob/6abaa28a2f3b76b7802b57ff2c677cb63c9131b9/lib/peer-discovery.js#L181
+      if (this._verbose) console.error(err)
+
+>>>>>>> Stashed changes
       return false
     } finally {
       if (refresh === this._currentRefresh) {
@@ -188,8 +195,7 @@ module.exports = class PeerDiscovery {
   }
 
   async flushed() {
-    // TODO:
-    // if (this.replicator.listening) await this.replicator.listening
+    await this._wait
 
     try {
       await this._currentRefresh
