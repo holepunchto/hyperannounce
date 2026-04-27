@@ -58,6 +58,11 @@ module.exports = class PeerDiscovery {
     return this._announce
   }
 
+  get active() {
+    // console.log(this._activeQuery, this._timer)
+    return !!(this._activeQuery || this._timer)
+  }
+
   setAnnounce(announce) {
     announce = !!announce
     if (announce === this._announce) return
@@ -206,7 +211,7 @@ module.exports = class PeerDiscovery {
     return this.destroying
   }
 
-  async _abort(log = noop) {
+  async abort(log = noop) {
     const id = log === noop ? '' : b4a.toString(this.topic, 'hex')
 
     log('Aborting discovery', id)
@@ -260,14 +265,14 @@ module.exports = class PeerDiscovery {
   _destroy() {
     if (this.destroyed) return
     this.destroyed = true
-    return this._abort(noop)
+    return this.abort(noop)
   }
 
   async suspend({ log = noop } = {}) {
     if (this.suspended) return
     this.suspended = true
     try {
-      await this._abort(log)
+      await this.abort(log)
     } catch {
       // ignore
     }
