@@ -16,17 +16,20 @@ test('basic api', async (t) => {
     onpeer: noop
   })
 
+  t.is(disc.active, false, 'inactive')
   disc.setAnnounce(true)
 
   const ts = Date.now()
   await disc.refresh()
+
+  t.is(disc.active, true, 'active')
   t.ok(disc.lastRefreshed >= ts)
   t.ok(disc.lastRefreshed <= Date.now())
   t.ok(typeof disc.bump, 'number')
 
-  await disc.suspend()
-  await disc.resume()
   await disc.destroy()
+  t.is(disc.active, false, 'deactivated')
+
   await peer.destroy()
   await testnet.destroy()
 })
@@ -119,6 +122,37 @@ test('refresh rejects on destroy', async (t) => {
 
   t.is(discovery.destroyed, true)
   t.is(err && err.message, 'PeerDiscovery is destroyed')
+
+  await peer.destroy()
+  await testnet.destroy()
+})
+
+test('abort and restart', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const peer = await spawnPeer(bootstrap)
+
+  const topic = b4a.alloc(32, 1)
+  const disc = new Discovery(peer.dht, topic, {
+    seed: seed(0),
+    relayAddresses: () => peer.server.relayAddresses,
+    onpeer: noop
+  })
+
+  t.is(disc.active, false, 'inactive')
+  disc.setAnnounce(true)
+
+  await disc.refresh()
+  t.is(disc.active, true, 'active')
+
+  await disc.abort()
+  t.is(disc.active, false, 'deactivated')
+
+  await disc.refresh()
+  t.is(disc.active, true, 'reactivated')
+
+  await disc.destroy()
+  t.is(disc.active, false, 'destroyed')
 
   await peer.destroy()
   await testnet.destroy()
