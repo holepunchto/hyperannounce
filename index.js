@@ -59,7 +59,6 @@ module.exports = class PeerDiscovery {
   }
 
   get active() {
-    // console.log(this._activeQuery, this._timer)
     return !!(this._activeQuery || this._timer)
   }
 
