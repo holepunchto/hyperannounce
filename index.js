@@ -19,11 +19,11 @@ module.exports = class PeerDiscovery {
       wait = null,
       suspended = false,
       onpeer = noop,
+      onbump = noop,
       onerror = safetyCatch,
       seed = null,
       keyPair = DHT.keyPair(seed),
-      relayAddresses = () => [],
-      verbose = false
+      relayAddresses = () => []
     } = {}
   ) {
     this.dht = dht
@@ -37,10 +37,15 @@ module.exports = class PeerDiscovery {
     this.destroying = null
     this.suspended = suspended
     this.lastRefreshed = -1
-    this.bump = -1
+    this.bump = {
+      announced: -1,
+      local: -1,
+      seen: -1
+    }
 
     this._onpeer = onpeer
     this._onerror = onerror
+    this._onbump = onbump
 
     this._discovered = new Set()
     this._activeQuery = null
@@ -51,7 +56,6 @@ module.exports = class PeerDiscovery {
     this._needsUnannounce = false
     this._refreshes = 0
     this._wait = wait
-    this._verbose = verbose
   }
 
   get announce() {
@@ -63,13 +67,20 @@ module.exports = class PeerDiscovery {
     return !!(this._activeQuery || this._timer)
   }
 
-  setAnnounce(announce) {
+  setAnnounce(announce, bump = -1) {
     announce = !!announce
+    this.update(bump)
     if (announce === this._announce) return
 
     this._announce = announce
+    this.bump.announced = -1
 
     if (this._activeQuery) this._activeQuery.destroy()
+  }
+
+  update(bump) {
+    if (bump <= this.bump.local) return
+    this.bump.local = bump
   }
 
   _refreshLater(eager) {
@@ -108,6 +119,8 @@ module.exports = class PeerDiscovery {
       clear,
       closestNodes: this._closestNodes
     }
+    const localBump = this.bump.local
+    if (localBump >= 0) opts.bump = localBump
 
     if (this.announce) this._needsUnannounce = true
 
@@ -131,8 +144,9 @@ module.exports = class PeerDiscovery {
     try {
       for await (const data of query) {
         if (!this._isActive()) continue
-        if (typeof data.bump === 'number' && data.bump > this.bump) {
-          this.bump = data.bump
+        if (typeof data.bump === 'number' && data.bump > this.bump.seen) {
+          this.bump.seen = data.bump
+          this._onbump(this.bump.seen)
         }
 
         for (const peer of data.peers) {
@@ -164,6 +178,7 @@ module.exports = class PeerDiscovery {
 
     this._closestNodes = query.closestNodes
     this.lastRefreshed = Date.now()
+    if (announcing) this.bump.announced = localBump
 
     if (clock !== this._refreshes) return
     if (!announcing) this._needsUnannounce = false
@@ -182,7 +197,7 @@ module.exports = class PeerDiscovery {
     } catch (err) {
       // TODO: do not silence onpeer errors
       // https://github.com/holepunchto/hyperswarm/blob/6abaa28a2f3b76b7802b57ff2c677cb63c9131b9/lib/peer-discovery.js#L181
-      if (this._verbose) console.error(err)
+      console.error(err)
 
       return false
     } finally {
