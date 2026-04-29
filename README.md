@@ -78,9 +78,7 @@ The local value will be published on next refresh when announcing.
 
 ### `await discovery.refresh()`
 
-Start discovery cycle if stopped. Resolves after a new refresh, or the current if one is already in
-progress.
-(Candidate for redesign)
+Performs announce/lookup and starts background discovery cycle.
 
 ### `await discovery.flushed()`
 
