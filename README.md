@@ -43,7 +43,8 @@ Options:
 - `seed` seed `keyPair`
 - `keyPair` announced keyPair
 - `relayAddresses()` getter for relay addresses during announce
-- `onerror(err)` (`safetycatch`) handler for internal timers
+- `onerror(err)` error-handler for internal timers
+- `onbump(number)` invoked when higher number is seen
 - `limit` (`Infinity`) max peers emitted per refresh
 - `suspended` (`false`) initialize as suspended
 - `wait` (`null`) promise awaited before refresh starts
@@ -55,26 +56,40 @@ Attributes:
 - `destroyed`
 - `suspended`
 - `announce`
+- `active` refresh cycle is alive
 - `lastRefreshed` timestamp
-- `bump` max seen value on dht
+- `bump.local` local value
+- `bump.announced` announced value
+- `bump.seen` max seen remote value
 
-### `discovery.setAnnounce(bool)`
+### `discovery.setAnnounce(bool, bump = -1)`
 
 Switch mode:
 
 - `true` => announce
 - `false` => lookup
 
+For `bump` see `update()`
+
+### `discovery.update(bump)`
+
+Updates the local bump value.
+The local value will be published on next refresh when announcing.
+
 ### `await discovery.refresh()`
 
-Run the current announce or lookup cycle.
-
-Returns `true` on success, `false` on internal failure.
-Throws if called after destroy.
+Start discovery cycle if stopped. Resolves after a new refresh, or the current if one is already in
+progress.
+(Candidate for redesign)
 
 ### `await discovery.flushed()`
 
 Wait for the current in-flight refresh.
+
+### `await discovery.abort()`
+
+Abort the active query and stop discovery cycle.
+Use `refresh()` to restart.
 
 ### `await discovery.suspend()`
 
@@ -82,7 +97,7 @@ Abort the active query and unannounce if needed.
 
 ### `await discovery.resume()`
 
-Resume and immediately refresh.
+Resume and refresh.
 
 ### `await discovery.destroy()`
 
