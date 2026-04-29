@@ -54,7 +54,8 @@ module.exports = class PeerDiscovery {
     this._closestNodes = null
     this._firstAnnounce = true
     this._needsUnannounce = false
-    this._refreshes = 0
+    this.refreshes = 0
+    this.failures = 0
     this._wait = wait
 
     this._mutex = new ScopeLock({ debounce: true })
@@ -149,6 +150,7 @@ module.exports = class PeerDiscovery {
     }
 
     this._activeQuery = query
+    let completed = false
 
     try {
       for await (const data of query) {
@@ -174,17 +176,23 @@ module.exports = class PeerDiscovery {
           this._onbump(this.bump.seen)
         }
       }
+
+      completed = true
     } catch (err) {
+      this.failures++
       if (this._runnable()) throw err // propagate unless shutting down
     } finally {
       this._activeQuery = null
-      this._closestNodes = query.closestNodes
       this.lastRefreshed = Date.now()
-      this._refreshes++
 
-      if (announcing) this.bump.announced = bump
-      if (clear) this._firstAnnounce = false
-      if (!announcing) this._needsUnannounce = false
+      if (completed) {
+        this.refreshes++
+        this._closestNodes = query.closestNodes
+
+        if (announcing) this.bump.announced = bump
+        if (clear) this._firstAnnounce = false
+        if (!announcing) this._needsUnannounce = false
+      }
 
       this._mutex.unlock()
 
