@@ -25,7 +25,6 @@ test('basic api', async (t) => {
   t.is(disc.active, true, 'active')
   t.ok(disc.lastRefreshed >= ts)
   t.ok(disc.lastRefreshed <= Date.now())
-  t.ok(typeof disc.bump, 'number')
 
   await disc.destroy()
   t.is(disc.active, false, 'deactivated')
@@ -154,6 +153,37 @@ test('abort and restart', async (t) => {
   await disc.destroy()
   t.is(disc.active, false, 'destroyed')
 
+  await peer.destroy()
+  await testnet.destroy()
+})
+
+test('bump api', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const peer = await spawnPeer(bootstrap)
+
+  const topic = b4a.alloc(32, 1)
+  const disc = new Discovery(peer.dht, topic, {
+    seed: seed(0),
+    relayAddresses: () => peer.server.relayAddresses,
+    onpeer: noop
+  })
+
+  t.is(disc.bump.announced, -1)
+  t.is(disc.bump.local, -1)
+  t.is(disc.bump.seen, -1)
+
+  disc.setAnnounce(true, 0)
+  t.is(disc.bump.local, 0)
+
+  disc.update(77)
+  t.is(disc.bump.local, 77)
+  t.is(disc.bump.announced, -1)
+
+  await disc.refresh()
+  t.is(disc.bump.announced, 77)
+
+  await disc.destroy()
   await peer.destroy()
   await testnet.destroy()
 })
