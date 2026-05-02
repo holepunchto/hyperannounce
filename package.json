@@ -18,7 +18,8 @@
   "dependencies": {
     "b4a": "^1.8.0",
     "hyperdht": "^6.29.6",
-    "safety-catch": "^1.0.3"
+    "safety-catch": "^1.0.3",
+    "scope-lock": "^1.2.4"
   },
   "devDependencies": {
     "brittle": "^3.19.1",
