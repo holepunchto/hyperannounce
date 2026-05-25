@@ -1,5 +1,5 @@
 {
-  "name": "@holepunchto/replicator-discovery",
+  "name": "replicator-discovery",
   "version": "1.1.0",
   "description": "peer discovery for replicator",
   "main": "index.js",
