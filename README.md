@@ -40,6 +40,7 @@ Options:
 
 - `announce` (`false`) see `setAnnounce`
 - `onpeer(peer, data)` peer info callback during lookup
+- `onstats(stats, action)` invoked before DHT query, `action` is `lookup|announce|unannounce`
 - `seed` seed `keyPair`
 - `keyPair` announced keyPair
 - `relayAddresses()` getter for relay addresses during announce
@@ -61,6 +62,9 @@ Attributes:
 - `bump.local` local value
 - `bump.announced` announced value
 - `bump.seen` max seen remote value
+- `stats.lookup` number of DHT lookups
+- `stats.announce` number of DHT announces
+- `stats.unannounce` number of DHT unannounces
 
 ### `discovery.setAnnounce(bool, bump = -1)`
 

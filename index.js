@@ -21,6 +21,7 @@ module.exports = class PeerDiscovery {
       suspended = false,
       onpeer = noop,
       onbump = noop,
+      onstats = noop,
       onerror = safetyCatch,
       seed = null,
       keyPair = DHT.keyPair(seed),
@@ -47,6 +48,13 @@ module.exports = class PeerDiscovery {
     this._onpeer = onpeer
     this._onerror = onerror
     this._onbump = onbump
+    this._onstats = onstats
+
+    this.stats = {
+      lookup: 0,
+      announce: 0,
+      unannounce: 0
+    }
 
     this._discovered = new Set()
     this._activeQuery = null
@@ -142,10 +150,16 @@ module.exports = class PeerDiscovery {
 
     let query
     if (announcing) {
+      this._updateStats('announce')
+
       query = this.dht.announce(this.topic, this.keyPair, this._relayAddresses(), opts)
     } else if (this._needsUnannounce) {
+      this._updateStats('unannounce')
+
       query = this.dht.lookupAndUnannounce(this.topic, this.keyPair, opts)
     } else {
+      this._updateStats('lookup')
+
       query = this.dht.lookup(this.topic, opts)
     }
 
@@ -256,6 +270,8 @@ module.exports = class PeerDiscovery {
     if (this._needsUnannounce) {
       log('Unannouncing discovery', id)
       if (nodes && nodes.length) {
+        this._updateStats('unannounce')
+
         await this.dht.unannounce(this.topic, this.keyPair, {
           closestNodes: nodes,
           onlyClosestNodes: true,
@@ -265,6 +281,15 @@ module.exports = class PeerDiscovery {
       this._needsUnannounce = false
       log('Unannouncing discovery (done)', id)
     }
+  }
+
+  _updateStats(action) {
+    this.stats[action]++
+
+    new Promise(async (resolve) => {
+      await this._onstats(this.stats, action)
+      resolve()
+    }).catch(this._onerror)
   }
 
   _destroy() {
