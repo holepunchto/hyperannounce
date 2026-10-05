@@ -284,7 +284,22 @@ module.exports = class PeerDiscovery {
   }
 
   _updateStats(action) {
-    this.stats[action]++
+    switch (action) {
+      case 'lookup':
+        this.stats.lookup++
+        break
+
+      case 'announce':
+        this.stats.announce++
+        break
+
+      case 'unannounce':
+        this.stats.unannounce++
+        break
+
+      default:
+        throw new Error('unknown action: ' + action)
+    }
 
     new Promise(async (resolve) => {
       await this._onstats(this.stats, action)
