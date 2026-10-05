@@ -4,7 +4,7 @@ const DHT = require('hyperdht')
 const createTestnet = require('hyperdht/testnet')
 const Discovery = require('..')
 
-test('basic api', async (t) => {
+test.solo('basic api', async (t) => {
   const testnet = await createTestnet()
   const { bootstrap } = testnet
   const peer = await spawnPeer(bootstrap)
