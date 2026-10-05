@@ -224,6 +224,27 @@ test('stats', async (t) => {
   await testnet.destroy()
 })
 
+test('parallel announces performs one-time fast-refresh', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const topic = b4a.alloc(32, 4)
+  const peerA = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
+  const peerB = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(8) })
+
+  await Promise.all([peerA.discovery.refresh(), peerB.discovery.refresh()])
+  t.is(peerA.seen.length, 0, 'first query misses peer B')
+  t.is(peerB.seen.length, 0, 'first query misses peer A')
+
+  await Promise.all([peerA.discovery.flushed(), peerB.discovery.flushed()])
+
+  t.ok(hasPeer(peerA.seen, peerB.discovery.keyPair.publicKey), 'fastRetry finds B')
+  t.ok(hasPeer(peerB.seen, peerA.discovery.keyPair.publicKey), 'fastRetry finds A')
+
+  await peerB.destroy()
+  await peerA.destroy()
+  await testnet.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()

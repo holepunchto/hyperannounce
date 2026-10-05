@@ -65,6 +65,8 @@ Attributes:
 - `stats.lookup` number of DHT lookups
 - `stats.announce` number of DHT announces
 - `stats.unannounce` number of DHT unannounces
+- `stats.refresh` number of refresh calls
+- `stats.errors` number of errors on refresh()
 
 ### `discovery.setAnnounce(bool, bump = -1)`
 

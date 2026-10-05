@@ -53,7 +53,9 @@ module.exports = class PeerDiscovery {
     this.stats = {
       lookup: 0,
       announce: 0,
-      unannounce: 0
+      unannounce: 0,
+      refresh: 0,
+      errors: 0
     }
 
     this._discovered = new Set()
@@ -62,9 +64,8 @@ module.exports = class PeerDiscovery {
     this._closestNodes = null
     this._firstAnnounce = true
     this._needsUnannounce = false
-    this.refreshes = 0
-    this.failures = 0
-    this._wait = wait
+    this._wait = wait // legacy support
+    this._fastRetry = false
 
     this._mutex = new ScopeLock({ debounce: true })
   }
@@ -97,7 +98,14 @@ module.exports = class PeerDiscovery {
     const jitter = Math.round(Math.random() * RANDOM_JITTER)
     const timeLeft = REFRESH_INTERVAL - (Date.now() - this.lastRefreshed)
 
-    const delay = timeLeft < 0 || eager ? jitter : timeLeft + jitter
+    let delay = timeLeft + jitter
+    if (timeLeft < 0) delay = jitter
+    if (eager) delay = jitter
+
+    if (this._fastRetry) {
+      delay = jitter
+      this._fastRetry = false
+    }
 
     if (this._timer) clearTimeout(this._timer)
 
@@ -193,14 +201,21 @@ module.exports = class PeerDiscovery {
 
       completed = true
     } catch (err) {
-      this.failures++
+      this.stats.errors++
       if (this._runnable()) throw err // propagate unless shutting down
     } finally {
       this._activeQuery = null
       this.lastRefreshed = Date.now()
 
       if (completed) {
-        this.refreshes++
+        /* Experimental */
+        /*
+        if (!this.stats.refresh && !nDiscovered) {
+          this._fastRetry = true
+        }
+        */
+
+        this.stats.refresh++
         this._closestNodes = query.closestNodes
 
         if (announcing) this.bump.announced = bump
