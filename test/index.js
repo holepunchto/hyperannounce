@@ -188,6 +188,42 @@ test('bump api', async (t) => {
   await testnet.destroy()
 })
 
+test('stats', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const actions = []
+  const peer = await spawnPeer(bootstrap, b4a.alloc(32, 4), {
+    onstats(stats, action) {
+      actions.push(action)
+      t.is(stats[action], 1, `${action} stats updated before callback`)
+    }
+  })
+
+  const { discovery } = peer
+
+  await discovery.refresh()
+  t.is(discovery.stats.lookup, 1)
+  t.is(discovery.stats.announce, 0)
+  t.is(discovery.stats.unannounce, 0)
+
+  discovery.setAnnounce(true)
+  await discovery.refresh()
+  t.is(discovery.stats.lookup, 1)
+  t.is(discovery.stats.announce, 1)
+  t.is(discovery.stats.unannounce, 0)
+
+  discovery.setAnnounce(false)
+  await discovery.refresh()
+  t.is(discovery.stats.lookup, 1)
+  t.is(discovery.stats.announce, 1)
+  t.is(discovery.stats.unannounce, 1)
+
+  t.alike(actions, ['lookup', 'announce', 'unannounce'])
+
+  await peer.destroy()
+  await testnet.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()
