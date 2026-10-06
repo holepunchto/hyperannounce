@@ -61,7 +61,6 @@ module.exports = class PeerDiscovery {
       errors: 0
     }
 
-    this._discovered = new Set()
     this._activeQuery = null
     this._timer = null
     this._closestNodes = null
@@ -82,7 +81,7 @@ module.exports = class PeerDiscovery {
   }
 
   get active() {
-    return !!(this._activeQuery || this._timer)
+    return !!(this._activeQuery || this._timer || this._applied < this._queued)
   }
 
   setAnnounce(announce, bump = -1) {
@@ -120,12 +119,20 @@ module.exports = class PeerDiscovery {
     }, delay)
   }
 
-  _isRunning() {
+  get _isRunning() {
     return !this.destroyed && !this.suspended
   }
 
+  refresh() {
+    if (this.destroyed) throw new Error('PeerDiscovery is destroyed')
+    if (this.suspended) return
+
+    this._queued++
+    this._refresh().catch(this._onerror)
+  }
+
   async _refresh() {
-    if (!this._isRunning()) return
+    if (!this._isRunning) return
 
     if (this._wait) {
       await this._wait
@@ -135,14 +142,42 @@ module.exports = class PeerDiscovery {
     const locked = await this._mutex.lock()
     if (!locked) return this._mutex.flush() // debounced
 
-    const mutation = this._queued
+    const snapshot = this._queued
 
-    if (!this._isRunning()) {
-      this._settlePending(mutation)
+    if (!this._isRunning) { // no-op
+      this._settlePending(snapshot)
       this._mutex.unlock()
       return
     }
 
+    try {
+      const nDiscovered = await this._query()
+
+      /* Experimental */
+      const firstRun = snapshot === 1
+      const topicEmpty = nDiscovered === 0
+
+      if (
+        this._fastRetry > 0 &&
+        firstRun &&
+        topicEmpty &&
+        this._isRunning
+      ) {
+        const delay = Math.random() * this._fastRetry
+        await new Promise((resolve) => setTimeout(resolve), delay)
+
+        await this._query() // fast-retry before mutex release
+      }
+    } finally {
+      this._settlePending(snapshot)
+
+      this._mutex.unlock()
+
+      if (this._isRunning) this._scheduleRefresh() // schedule next
+    }
+  }
+
+  async _query() {
     const clear = this.announce && this._firstAnnounce
 
     const opts = {
@@ -156,8 +191,7 @@ module.exports = class PeerDiscovery {
     if (this.announce) this._needsUnannounce = true
 
     let nDiscovered = 0
-
-    this._discovered.clear()
+    const discovered = new Set()
 
     const announcing = this.announce
 
@@ -181,14 +215,14 @@ module.exports = class PeerDiscovery {
 
     try {
       for await (const data of query) {
-        if (!this._isRunning()) continue
+        if (!this._isRunning) continue
 
         for (const peer of data.peers) {
           const id = toHex(peer.publicKey)
-          const duplicate = this._discovered.has(id)
+          const duplicate = discovered.has(id)
 
-          if (this._discovered.size < MAX_DISCOVERY_CACHE) {
-            this._discovered.add(id)
+          if (discovered.size < MAX_DISCOVERY_CACHE) {
+            discovered.add(id)
           }
 
           if (duplicate) continue
@@ -207,23 +241,12 @@ module.exports = class PeerDiscovery {
       completed = true
     } catch (err) {
       this.stats.errors++
-      if (this._isRunning()) throw err // propagate unless shutting down
+      if (this._isRunning) throw err // propagate unless shutting down
     } finally {
       this._activeQuery = null
       this.lastRefreshed = Date.now()
 
-      let postpone = false // experimental
-
       if (completed) {
-        /* Experimental */
-        if (this._fastRetry > 0 && false) {
-          const topicEmpty = !this.stats.refresh && !nDiscovered
-          if (topicEmpty) {
-            this.refresh(Math.random() * this._fastRetry)
-            postpone = true
-          }
-        }
-
         this.stats.refresh++
         this._closestNodes = query.closestNodes
 
@@ -231,13 +254,9 @@ module.exports = class PeerDiscovery {
         if (clear) this._firstAnnounce = false
         if (!announcing) this._needsUnannounce = false
       }
-
-      if (!postpone) this._settlePending(mutation)
-
-      this._mutex.unlock()
-
-      if (this._isRunning()) this._scheduleRefresh() // schedule next
     }
+
+    return nDiscovered
   }
 
   _settlePending(applied) {
@@ -255,14 +274,6 @@ module.exports = class PeerDiscovery {
     if (this._applied < applied) {
       this._applied = applied
     }
-  }
-
-  refresh() {
-    if (this.destroyed) throw new Error('PeerDiscovery is destroyed')
-    if (this.suspended) return
-
-    this._queued++
-    this._refresh().catch(this._onerror)
   }
 
   async flush() {
@@ -299,12 +310,6 @@ module.exports = class PeerDiscovery {
       this._activeQuery.destroy()
       this._activeQuery = null
     }
-    if (this._timer) {
-      clearTimeout(this._timer)
-      this._timer = null
-    }
-
-    let nodes = this._closestNodes
 
     try {
       await this._mutex.flush()
@@ -314,12 +319,20 @@ module.exports = class PeerDiscovery {
 
     this._settlePending(this._queued) // release all
 
-    log('Aborting discovery (post refresh)', id)
-    if (this._isRunning()) return
+    if (this._timer) {
+      clearTimeout(this._timer)
+      this._timer = null
+    }
 
-    if (!nodes) nodes = this._closestNodes
-    else if (this._closestNodes && this._closestNodes !== nodes) {
+    if (this._isRunning) return
+    log('Aborting discovery (post refresh)', id)
+
+    let nodes = this._closestNodes
+    if (!nodes) {
+      nodes = this._closestNodes
+    } else if (this._closestNodes && this._closestNodes !== nodes) {
       const len = nodes.length
+
       for (const newer of this._closestNodes) {
         if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
       }

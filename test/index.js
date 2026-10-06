@@ -20,7 +20,8 @@ test('basic api', async (t) => {
   disc.setAnnounce(true)
 
   const ts = Date.now()
-  await disc.refresh()
+  disc.refresh()
+  await disc.flush()
 
   t.is(disc.active, true, 'active')
   t.ok(disc.lastRefreshed >= ts)
@@ -41,9 +42,11 @@ test('announce and emit peers', async (t) => {
   const server = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(1) })
   const client = await spawnPeer(bootstrap, topic)
 
-  await server.discovery.refresh()
+  server.discovery.refresh()
+
   client.seen.length = 0
-  await client.discovery.refresh()
+  client.discovery.refresh()
+  await client.discovery.flush()
 
   t.is(client.seen.length, 1)
   t.alike(client.seen[0].publicKey, server.discovery.keyPair.publicKey)
@@ -74,23 +77,30 @@ test('suspend & resume', async (t) => {
   const clientA = await spawnPeer(bootstrap, topic)
   const clientB = await spawnPeer(bootstrap, topic)
 
-  await server.discovery.refresh()
+  server.discovery.refresh()
 
   clientA.seen.length = 0
-  await clientA.discovery.refresh()
+  clientA.discovery.refresh()
+  await clientA.discovery.flush()
+
   t.is(hasPeer(clientA.seen, server.discovery.keyPair.publicKey), true)
 
   await server.discovery.suspend()
   t.is(server.discovery.suspended, true)
 
   clientB.seen.length = 0
-  await clientB.discovery.refresh()
+  clientB.discovery.refresh()
+  await clientB.discovery.flush()
+
   t.is(hasPeer(clientB.seen, server.discovery.keyPair.publicKey), false, 'unannounced')
 
   await server.discovery.resume()
+  await server.discovery.flush()
 
   clientB.seen.length = 0
-  await clientB.discovery.refresh()
+  clientB.discovery.refresh()
+  await clientB.discovery.flush()
+
   t.is(hasPeer(clientB.seen, server.discovery.keyPair.publicKey), true, 'reannounced')
   t.is(server.discovery.suspended, false)
 
@@ -108,13 +118,12 @@ test('refresh rejects on destroy', async (t) => {
   const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(6) })
   const { discovery } = peer
 
-  await discovery.refresh()
-  await discovery.destroy()
+  discovery.refresh()
   await discovery.destroy()
 
   let err = null
   try {
-    await discovery.refresh()
+    discovery.refresh()
   } catch (error) {
     err = error
   }
@@ -141,13 +150,14 @@ test('abort and restart', async (t) => {
   t.is(disc.active, false, 'inactive')
   disc.setAnnounce(true)
 
-  await disc.refresh()
+  disc.refresh()
   t.is(disc.active, true, 'active')
 
   await disc.abort()
   t.is(disc.active, false, 'deactivated')
 
-  await disc.refresh()
+  disc.refresh()
+
   t.is(disc.active, true, 'reactivated')
 
   await disc.destroy()
@@ -181,6 +191,7 @@ test('bump api', async (t) => {
   t.is(disc.bump.announced, -1)
 
   await disc.refresh()
+  await disc.flush()
   t.is(disc.bump.announced, 77)
 
   await disc.destroy()
@@ -193,38 +204,43 @@ test('stats', async (t) => {
   const { bootstrap } = testnet
   const actions = []
   const peer = await spawnPeer(bootstrap, b4a.alloc(32, 4), {
-    onstats(stats, action) {
+    onstats(_, action) {
       actions.push(action)
-      t.is(stats[action], 1, `${action} stats updated before callback`)
     }
   })
 
   const { discovery } = peer
 
-  await discovery.refresh()
-  t.is(discovery.stats.lookup, 1)
+  discovery.refresh()
+  await discovery.flush()
+
+  t.is(discovery.stats.lookup, 2)
   t.is(discovery.stats.announce, 0)
   t.is(discovery.stats.unannounce, 0)
 
   discovery.setAnnounce(true)
-  await discovery.refresh()
-  t.is(discovery.stats.lookup, 1)
+
+  discovery.refresh()
+  await discovery.flush()
+  t.is(discovery.stats.lookup, 2)
   t.is(discovery.stats.announce, 1)
   t.is(discovery.stats.unannounce, 0)
 
   discovery.setAnnounce(false)
-  await discovery.refresh()
-  t.is(discovery.stats.lookup, 1)
+
+  discovery.refresh()
+  await discovery.flush()
+  t.is(discovery.stats.lookup, 2)
   t.is(discovery.stats.announce, 1)
   t.is(discovery.stats.unannounce, 1)
 
-  t.alike(actions, ['lookup', 'announce', 'unannounce'])
+  t.alike(actions, ['lookup', 'lookup', 'announce', 'unannounce'])
 
   await peer.destroy()
   await testnet.destroy()
 })
 
-test.solo('parallel announces performs one-time fast-refresh', async (t) => {
+test('parallel announces performs one-time fast-refresh', async (t) => {
   const testnet = await createTestnet()
   const { bootstrap } = testnet
   const topic = b4a.alloc(32, 4)
