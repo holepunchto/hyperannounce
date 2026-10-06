@@ -23,7 +23,9 @@ const discovery = new Discovery(dht, topic, {
   }
 })
 
-await discovery.refresh()
+discovery.refresh()
+await discovery.flush()
+
 await discovery.suspend()
 await discovery.resume()
 await discovery.destroy()
@@ -65,7 +67,7 @@ Attributes:
 - `stats.lookup` number of DHT lookups
 - `stats.announce` number of DHT announces
 - `stats.unannounce` number of DHT unannounces
-- `stats.refresh` number of refresh calls
+- `stats.refresh` number of completed refresh queries
 - `stats.errors` number of errors on refresh()
 
 ### `discovery.setAnnounce(bool, bump = -1)`
@@ -82,13 +84,13 @@ For `bump` see `update()`
 Updates the local bump value.
 The local value will be published on next refresh when announcing.
 
-### `await discovery.refresh()`
+### `discovery.refresh()`
 
-Performs announce/lookup and starts background discovery cycle.
+Queues an announce or lookup, also starts background discovery cycle.
 
-### `await discovery.flushed()`
+### `await discovery.flush()`
 
-Wait for the current in-flight refresh.
+Waits for any in-flight queries to settle.
 
 ### `await discovery.abort()`
 

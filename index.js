@@ -28,7 +28,7 @@ module.exports = class PeerDiscovery {
       seed = null,
       keyPair = DHT.keyPair(seed),
       relayAddresses = () => [],
-      fastRetry = FAST_RETRY
+      fastRetry = FAST_RETRY // experimental
     } = {}
   ) {
     this.dht = dht
@@ -144,7 +144,8 @@ module.exports = class PeerDiscovery {
 
     const snapshot = this._queued
 
-    if (!this._isRunning) { // no-op
+    if (!this._isRunning) {
+      // no-op
       this._settlePending(snapshot)
       this._mutex.unlock()
       return
@@ -157,12 +158,7 @@ module.exports = class PeerDiscovery {
       const firstRun = snapshot === 1
       const topicEmpty = nDiscovered === 0
 
-      if (
-        this._fastRetry > 0 &&
-        firstRun &&
-        topicEmpty &&
-        this._isRunning
-      ) {
+      if (this._fastRetry > 0 && firstRun && topicEmpty && this._isRunning) {
         const delay = Math.random() * this._fastRetry
         await new Promise((resolve) => setTimeout(resolve), delay)
 
@@ -287,7 +283,9 @@ module.exports = class PeerDiscovery {
     }
 
     let settle = null
-    const promise = new Promise((resolve) => { settle = resolve })
+    const promise = new Promise((resolve) => {
+      settle = resolve
+    })
     this._subscribers.push({ target, settle, promise })
 
     return promise
