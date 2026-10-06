@@ -275,6 +275,7 @@ async function spawnPeer(bootstrap, topic, opts = {}) {
 
   const discovery = new Discovery(dht, topic, {
     relayAddresses: () => server.relayAddresses,
+    fastRetry: 100,
     ...opts,
     onpeer
   })

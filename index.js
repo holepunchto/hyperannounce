@@ -8,7 +8,6 @@ const { toHex } = b4a
 const REFRESH_INTERVAL = 1000 * 60 * 10 // 10 min
 const RANDOM_JITTER = 1000 * 60 * 2 // 2 min
 const DELAY_GRACE_PERIOD = 1000 * 30 // 30s
-const FAST_RETRY = 1000
 
 const MAX_DISCOVERY_CACHE = 64
 
@@ -28,7 +27,8 @@ module.exports = class PeerDiscovery {
       seed = null,
       keyPair = DHT.keyPair(seed),
       relayAddresses = () => [],
-      fastRetry = FAST_RETRY // experimental
+
+      fastRetry = 0 // experimental
     } = {}
   ) {
     this.dht = dht
@@ -154,7 +154,7 @@ module.exports = class PeerDiscovery {
     try {
       const nDiscovered = await this._query()
 
-      /* Experimental */
+      // experimental
       const firstRun = snapshot === 1
       const topicEmpty = nDiscovered === 0
 
