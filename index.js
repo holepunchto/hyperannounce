@@ -8,7 +8,7 @@ const { toHex } = b4a
 const REFRESH_INTERVAL = 1000 * 60 * 10 // 10 min
 const RANDOM_JITTER = 1000 * 60 * 2 // 2 min
 const DELAY_GRACE_PERIOD = 1000 * 30 // 30s
-const FAST_RETRY = 3 * 1000 // 3s
+const FAST_RETRY = 1000
 
 const MAX_DISCOVERY_CACHE = 64
 
@@ -160,7 +160,7 @@ module.exports = class PeerDiscovery {
 
       if (this._fastRetry > 0 && firstRun && topicEmpty && this._isRunning) {
         const delay = Math.random() * this._fastRetry
-        await new Promise((resolve) => setTimeout(resolve), delay)
+        await new Promise((resolve) => setTimeout(resolve, delay))
 
         await this._query() // fast-retry before mutex release
       }
