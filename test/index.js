@@ -4,6 +4,7 @@ const DHT = require('hyperdht')
 const createTestnet = require('hyperdht/testnet')
 const Discovery = require('..')
 const { toHex } = b4a
+const { throttleDHT } = require('./helpers')
 
 test('basic api', async (t) => {
   const testnet = await createTestnet()
@@ -152,14 +153,17 @@ test('abort and restart', async (t) => {
   disc.setAnnounce(true)
 
   disc.refresh()
+  await disc.flush()
   t.is(disc.active, true, 'active')
 
-  await disc.abort()
+  disc.abort(true)
+  await disc.flush()
   t.is(disc.active, false, 'deactivated')
 
   disc.refresh()
 
   t.is(disc.active, true, 'reactivated')
+  await disc.flush()
 
   await disc.destroy()
   t.is(disc.active, false, 'destroyed')
@@ -191,7 +195,7 @@ test('bump api', async (t) => {
   t.is(disc.bump.local, 77)
   t.is(disc.bump.announced, -1)
 
-  await disc.refresh()
+  disc.refresh()
   await disc.flush()
   t.is(disc.bump.announced, 77)
 
@@ -306,7 +310,7 @@ test('abort() does not leak dht announces', async (t) => {
   await queryStarted
 
   discovery.suspended = true
-  await discovery.abort()
+  await discovery.abort(true)
 
   let announced = new Set()
   for (const n of [...oldNodes, ...newNodes]) {
@@ -325,24 +329,24 @@ test.solo('refresh() and flush()', async (t) => {
   const topic = b4a.alloc(32, 4)
   const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
 
-  const disc = peer.discovery
-  t.is(disc._queued, 0)
+  const { discovery } = peer
+  t.is(discovery._queued, 0)
 
-  disc.refresh()
-  t.is(disc._queued, 1, 'queued')
+  discovery.refresh()
+  t.is(discovery._queued, 1, 'queued')
 
-  disc.refresh()
-  t.is(disc._queued, 1, 'debounced')
+  discovery.refresh()
+  t.is(discovery._queued, 1, 'debounced')
 
-  t.is(disc._applied, 0, 'work pending')
-  const flushed = disc.flush()
+  t.is(discovery._applied, 0, 'work pending')
+  const flushed = discovery.flush()
 
-  disc.refresh()
-  t.is(disc._queued, 2, 're-queued')
+  discovery.refresh()
+  t.is(discovery._queued, 2, 're-queued')
 
   const cursor = await flushed
 
-  t.is(disc._applied, 1, 'work done')
+  t.is(discovery._applied, 1, 'work done')
   t.is(cursor, 1, 'flush snapshots')
 
   await peer.destroy()
@@ -354,7 +358,9 @@ test.solo('refresh(), abort() and flush()', async (t) => {
   const { bootstrap } = testnet
   const topic = b4a.alloc(32, 4)
   const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
-  const disc = peer.discovery
+  const { discovery } = peer
+
+  const { cork, uncork } = throttleDHT(t, discovery.dht)
 
   const order = []
   const recordEvent = (ev) => {
@@ -362,43 +368,43 @@ test.solo('refresh(), abort() and flush()', async (t) => {
     order.push(ev)
   }
 
-  disc.refresh()
-  const announced = disc.flush().then((cursor) => {
+  discovery.refresh()
+  const announced = discovery.flush().then((cursor) => {
     recordEvent('announce')
     t.is(cursor, 1)
   })
 
-  t.is(disc._queued, 1)
+  t.is(discovery._queued, 1)
 
-  // TODO: abort midflight (delay prior query)
-  // TODO: HIGH PRIO - abort should be sync
-  disc.abort()
+  cork()
+  discovery.abort(true)
 
-  t.is(disc._queued, 2, 'abort counts as work')
+  t.is(discovery._queued, 2, 'abort counts as work')
 
-  const aborted = disc.flush().then((cursor) => {
+  const aborted = discovery.flush().then((cursor) => {
     recordEvent('abort')
     t.is(cursor, 2, 'flush snapshots abort')
   })
 
   await announced
-  t.is(disc._applied, 1, 'annouced')
-  t.is(disc._queued, 2, 'abort is inflight')
+  t.is(discovery._applied, 1, 'announced')
+  t.is(discovery._queued, 2, 'abort is inflight')
 
-  disc.refresh()
-  t.is(disc._queued, 3, 'reannounce queued')
+  discovery.refresh()
+  t.is(discovery._queued, 3, 'reannounce queued')
 
-  const reannounced = disc.flush().then((cursor) => {
+  const reannounced = discovery.flush().then((cursor) => {
     recordEvent('reannounced')
     t.is(cursor, 3, 'reannounce done')
   })
 
   await aborted
 
+  uncork()
+
   await reannounced
 
-  console.log(order)
-  t.alike(order, ['announce', 'abort', 'reannounce'])
+  t.alike(order, ['announce', 'abort', 'reannounced'])
 
   await peer.destroy()
   await testnet.destroy()
