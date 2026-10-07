@@ -315,6 +315,9 @@ module.exports = class PeerDiscovery {
       this._activeQuery = null
     }
 
+    // snapshot pre-abort
+    let nodes = this._closestNodes
+
     if (this._timer) {
       clearTimeout(this._timer)
       this._timer = null
@@ -336,7 +339,18 @@ module.exports = class PeerDiscovery {
     if (this._isRunning) return
     log('Aborting discovery (post refresh)', id)
 
-    const nodes = this._closestNodes
+    // merge aborted work / avoid leaking announcements
+    const latest = this._closestNodes
+
+    if (!nodes) {
+      nodes = latest
+    } else if (latest && latest !== nodes) {
+      const len = nodes.length
+
+      for (const newer of latest) {
+        if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
+      }
+    }
 
     if (this._needsUnannounce) {
       log('Unannouncing discovery', id)
@@ -378,10 +392,16 @@ module.exports = class PeerDiscovery {
     }).catch(this._onerror)
   }
 
-  _destroy() {
+  async _destroy() {
     if (this.destroyed) return
     this.destroyed = true
-    return this.abort(noop)
+
+    try {
+      await this.abort(noop)
+    } catch (err) {
+      // ignore
+      safetyCatch(err)
+    }
   }
 
   async suspend({ log = noop } = {}) {
@@ -389,16 +409,26 @@ module.exports = class PeerDiscovery {
     this.suspended = true
     try {
       await this.abort(log)
-    } catch {
+    } catch (err) {
       // ignore
+      safetyCatch(err)
     }
   }
 
   resume() {
     if (!this.suspended) return
     this.suspended = false
-    return this.refresh()
+    this.refresh()
   }
+}
+
+function hasNode(nodes, len, node) {
+  for (let i = 0; i < len; i++) {
+    const existing = nodes[i]
+    if (existing.id && b4a.equals(existing.id, node.id)) return true
+  }
+
+  return false
 }
 
 function noop() {}
