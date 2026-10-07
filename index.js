@@ -3,6 +3,7 @@ const DHT = require('hyperdht')
 const ScopeLock = require('scope-lock')
 
 const b4a = require('b4a')
+const { toHex } = b4a
 
 const REFRESH_INTERVAL = 1000 * 60 * 10 // 10 min
 const RANDOM_JITTER = 1000 * 60 * 2 // 2 min
@@ -25,7 +26,9 @@ module.exports = class PeerDiscovery {
       onerror = safetyCatch,
       seed = null,
       keyPair = DHT.keyPair(seed),
-      relayAddresses = () => []
+      relayAddresses = () => [],
+
+      fastRetry = 0 // experimental
     } = {}
   ) {
     this.dht = dht
@@ -53,18 +56,22 @@ module.exports = class PeerDiscovery {
     this.stats = {
       lookup: 0,
       announce: 0,
-      unannounce: 0
+      unannounce: 0,
+      refresh: 0,
+      errors: 0
     }
 
-    this._discovered = new Set()
     this._activeQuery = null
     this._timer = null
     this._closestNodes = null
     this._firstAnnounce = true
     this._needsUnannounce = false
-    this.refreshes = 0
-    this.failures = 0
-    this._wait = wait
+    this._wait = wait // legacy
+
+    this._queued = 0
+    this._applied = 0
+    this._subscribers = []
+    this._fastRetry = fastRetry
 
     this._mutex = new ScopeLock({ debounce: true })
   }
@@ -74,7 +81,7 @@ module.exports = class PeerDiscovery {
   }
 
   get active() {
-    return !!(this._activeQuery || this._timer)
+    return !!(this._activeQuery || this._timer || this._applied < this._queued)
   }
 
   setAnnounce(announce, bump = -1) {
@@ -97,7 +104,9 @@ module.exports = class PeerDiscovery {
     const jitter = Math.round(Math.random() * RANDOM_JITTER)
     const timeLeft = REFRESH_INTERVAL - (Date.now() - this.lastRefreshed)
 
-    const delay = timeLeft < 0 || eager ? jitter : timeLeft + jitter
+    let delay = timeLeft + jitter
+    if (timeLeft < 0) delay = jitter
+    if (eager) delay = jitter
 
     if (this._timer) clearTimeout(this._timer)
 
@@ -110,12 +119,20 @@ module.exports = class PeerDiscovery {
     }, delay)
   }
 
-  _runnable() {
+  get _isRunning() {
     return !this.destroyed && !this.suspended
   }
 
+  refresh() {
+    if (this.destroyed) throw new Error('PeerDiscovery is destroyed')
+    if (this.suspended) return
+
+    this._queued++
+    this._refresh().catch(this._onerror)
+  }
+
   async _refresh() {
-    if (!this._runnable()) return
+    if (!this._isRunning) return
 
     if (this._wait) {
       await this._wait
@@ -125,11 +142,38 @@ module.exports = class PeerDiscovery {
     const locked = await this._mutex.lock()
     if (!locked) return this._mutex.flush() // debounced
 
-    if (!this._runnable()) {
+    const snapshot = this._queued
+
+    if (!this._isRunning) {
+      // no-op
+      this._settlePending(snapshot)
       this._mutex.unlock()
       return
     }
 
+    try {
+      const nDiscovered = await this._query()
+
+      // experimental
+      const firstRun = snapshot === 1
+      const topicEmpty = nDiscovered === 0
+
+      if (this._fastRetry > 0 && firstRun && topicEmpty && this._isRunning) {
+        const delay = Math.random() * this._fastRetry
+        await new Promise((resolve) => setTimeout(resolve, delay))
+
+        await this._query() // fast-retry before mutex release
+      }
+    } finally {
+      this._settlePending(snapshot)
+
+      this._mutex.unlock()
+
+      if (this._isRunning) this._scheduleRefresh() // schedule next
+    }
+  }
+
+  async _query() {
     const clear = this.announce && this._firstAnnounce
 
     const opts = {
@@ -143,8 +187,7 @@ module.exports = class PeerDiscovery {
     if (this.announce) this._needsUnannounce = true
 
     let nDiscovered = 0
-
-    this._discovered.clear()
+    const discovered = new Set()
 
     const announcing = this.announce
 
@@ -168,14 +211,14 @@ module.exports = class PeerDiscovery {
 
     try {
       for await (const data of query) {
-        if (!this._runnable()) continue
+        if (!this._isRunning) continue
 
         for (const peer of data.peers) {
-          const id = b4a.toString(peer.publicKey, 'hex')
-          const duplicate = this._discovered.has(id)
+          const id = toHex(peer.publicKey)
+          const duplicate = discovered.has(id)
 
-          if (this._discovered.size < MAX_DISCOVERY_CACHE) {
-            this._discovered.add(id)
+          if (discovered.size < MAX_DISCOVERY_CACHE) {
+            discovered.add(id)
           }
 
           if (duplicate) continue
@@ -193,37 +236,59 @@ module.exports = class PeerDiscovery {
 
       completed = true
     } catch (err) {
-      this.failures++
-      if (this._runnable()) throw err // propagate unless shutting down
+      this.stats.errors++
+      if (this._isRunning) throw err // propagate unless shutting down
     } finally {
       this._activeQuery = null
       this.lastRefreshed = Date.now()
 
       if (completed) {
-        this.refreshes++
+        this.stats.refresh++
         this._closestNodes = query.closestNodes
 
         if (announcing) this.bump.announced = bump
         if (clear) this._firstAnnounce = false
         if (!announcing) this._needsUnannounce = false
       }
+    }
 
-      this._mutex.unlock()
+    return nDiscovered
+  }
 
-      if (this._runnable()) this._scheduleRefresh() // schedule next
+  _settlePending(applied) {
+    for (let i = 0; this._subscribers.length; i++) {
+      const { target } = this._subscribers[0]
+
+      if (target > applied) {
+        break
+      }
+
+      const { settle } = this._subscribers.shift()
+      settle()
+    }
+
+    if (this._applied < applied) {
+      this._applied = applied
     }
   }
 
-  async refresh() {
-    if (this.destroyed) throw new Error('PeerDiscovery is destroyed')
-    if (this.suspended) return
+  async flush() {
+    const target = this._queued
+    if (target <= this._applied) return
 
-    await this._refresh()
-  }
+    // dedupe
+    const head = this._subscribers[0]
+    if (head && target === head.target) {
+      return head.promise
+    }
 
-  async flushed() {
-    await this._wait
-    return this._mutex.flush()
+    let settle = null
+    const promise = new Promise((resolve) => {
+      settle = resolve
+    })
+    this._subscribers.push({ target, settle, promise })
+
+    return promise
   }
 
   destroy() {
@@ -233,7 +298,7 @@ module.exports = class PeerDiscovery {
   }
 
   async abort(log = noop) {
-    const id = log === noop ? '' : b4a.toString(this.topic, 'hex')
+    const id = log === noop ? '' : toHex(this.topic)
 
     log('Aborting discovery', id)
     if (this._wait) await this._wait
@@ -243,12 +308,6 @@ module.exports = class PeerDiscovery {
       this._activeQuery.destroy()
       this._activeQuery = null
     }
-    if (this._timer) {
-      clearTimeout(this._timer)
-      this._timer = null
-    }
-
-    let nodes = this._closestNodes
 
     try {
       await this._mutex.flush()
@@ -256,12 +315,22 @@ module.exports = class PeerDiscovery {
       // If the destroy causes the refresh to fail, suppress it.
     }
 
-    log('Aborting discovery (post refresh)', id)
-    if (this._runnable()) return
+    this._settlePending(this._queued) // release all
 
-    if (!nodes) nodes = this._closestNodes
-    else if (this._closestNodes && this._closestNodes !== nodes) {
+    if (this._timer) {
+      clearTimeout(this._timer)
+      this._timer = null
+    }
+
+    if (this._isRunning) return
+    log('Aborting discovery (post refresh)', id)
+
+    let nodes = this._closestNodes
+    if (!nodes) {
+      nodes = this._closestNodes
+    } else if (this._closestNodes && this._closestNodes !== nodes) {
       const len = nodes.length
+
       for (const newer of this._closestNodes) {
         if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
       }
