@@ -115,7 +115,13 @@ module.exports = class PeerDiscovery {
       // If your laptop went to sleep, and is coming back online...
       const overdue = Date.now() - startTime > delay + DELAY_GRACE_PERIOD
       if (overdue) this._scheduleRefresh(true)
-      else this.refresh().catch(this._onerror)
+      else {
+        try {
+          this.refresh()
+        } catch(err) {
+          this._onerror(err)
+        }
+      }
     }, delay)
   }
 
