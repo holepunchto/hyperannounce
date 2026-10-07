@@ -337,9 +337,7 @@ module.exports = class PeerDiscovery {
     log('Aborting discovery (post refresh)', id)
 
     let nodes = this._closestNodes
-    if (!nodes) {
-      nodes = this._closestNodes
-    } else if (this._closestNodes && this._closestNodes !== nodes) {
+    if (this._closestNodes && this._closestNodes !== nodes) {
       const len = nodes.length
 
       for (const newer of this._closestNodes) {
