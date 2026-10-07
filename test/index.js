@@ -319,6 +319,91 @@ test('abort() does not leak dht announces', async (t) => {
   t.alike(unannounced, announced, 'unannounces old and new closest nodes')
 })
 
+test.solo('refresh() and flush()', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const topic = b4a.alloc(32, 4)
+  const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
+
+  const disc = peer.discovery
+  t.is(disc._queued, 0)
+
+  disc.refresh()
+  t.is(disc._queued, 1, 'queued')
+
+  disc.refresh()
+  t.is(disc._queued, 1, 'debounced')
+
+  t.is(disc._applied, 0, 'work pending')
+  const flushed = disc.flush()
+
+  disc.refresh()
+  t.is(disc._queued, 2, 're-queued')
+
+  const cursor = await flushed
+
+  t.is(disc._applied, 1, 'work done')
+  t.is(cursor, 1, 'flush snapshots')
+
+  await peer.destroy()
+  await testnet.destroy()
+})
+
+test.solo('refresh(), abort() and flush()', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const topic = b4a.alloc(32, 4)
+  const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
+  const disc = peer.discovery
+
+  const order = []
+  const recordEvent = (ev) => {
+    console.log(ev)
+    order.push(ev)
+  }
+
+  disc.refresh()
+  const announced = disc.flush().then((cursor) => {
+    recordEvent('announce')
+    t.is(cursor, 1)
+  })
+
+  t.is(disc._queued, 1)
+
+  // TODO: abort midflight (delay prior query)
+  // TODO: HIGH PRIO - abort should be sync
+  disc.abort()
+
+  t.is(disc._queued, 2, 'abort counts as work')
+
+  const aborted = disc.flush().then((cursor) => {
+    recordEvent('abort')
+    t.is(cursor, 2, 'flush snapshots abort')
+  })
+
+  await announced
+  t.is(disc._applied, 1, 'annouced')
+  t.is(disc._queued, 2, 'abort is inflight')
+
+  disc.refresh()
+  t.is(disc._queued, 3, 'reannounce queued')
+
+  const reannounced = disc.flush().then((cursor) => {
+    recordEvent('reannounced')
+    t.is(cursor, 3, 'reannounce done')
+  })
+
+  await aborted
+
+  await reannounced
+
+  console.log(order)
+  t.alike(order, ['announce', 'abort', 'reannounce'])
+
+  await peer.destroy()
+  await testnet.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()
