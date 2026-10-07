@@ -20,10 +20,10 @@ exports.throttleDHT = function throttleDHT(t, dht) {
   }
 
   return {
-    cork () {
+    cork() {
       corked = true
     },
-    uncork () {
+    uncork() {
       corked = false
     }
   }
@@ -31,7 +31,7 @@ exports.throttleDHT = function throttleDHT(t, dht) {
 
 function throttleQuery(query, done) {
   return new Proxy(query, {
-    get (target, prop, receiver) {
+    get(target, prop, receiver) {
       if (prop !== Symbol.asyncIterator) return Reflect.get(target, prop, receiver)
 
       return function () {
@@ -43,7 +43,7 @@ function throttleQuery(query, done) {
 
 function throttleIterator(iterator, done) {
   return {
-    async next () {
+    async next() {
       try {
         const result = await iterator.next()
         if (result.done) done()
@@ -53,14 +53,14 @@ function throttleIterator(iterator, done) {
         throw err
       }
     },
-    async return () {
+    async return() {
       try {
         return await iterator.return()
       } finally {
         done()
       }
     },
-    [Symbol.asyncIterator] () {
+    [Symbol.asyncIterator]() {
       return this
     }
   }
