@@ -118,7 +118,7 @@ module.exports = class PeerDiscovery {
       else {
         try {
           this.refresh()
-        } catch(err) {
+        } catch (err) {
           this._onerror(err)
         }
       }
