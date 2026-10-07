@@ -114,8 +114,16 @@ module.exports = class PeerDiscovery {
     this._timer = setTimeout(() => {
       // If your laptop went to sleep, and is coming back online...
       const overdue = Date.now() - startTime > delay + DELAY_GRACE_PERIOD
-      if (overdue) this._scheduleRefresh(true)
-      else this.refresh().catch(this._onerror)
+
+      if (overdue) {
+        this._scheduleRefresh(true)
+      } else {
+        try {
+          this.refresh()
+        } catch (err) {
+          this._onerror(err)
+        }
+      }
     }, delay)
   }
 
@@ -309,6 +317,14 @@ module.exports = class PeerDiscovery {
       this._activeQuery = null
     }
 
+    // snapshot pre-abort
+    let nodes = this._closestNodes
+
+    if (this._timer) {
+      clearTimeout(this._timer)
+      this._timer = null
+    }
+
     try {
       await this._mutex.flush()
     } catch {
@@ -325,13 +341,15 @@ module.exports = class PeerDiscovery {
     if (this._isRunning) return
     log('Aborting discovery (post refresh)', id)
 
-    let nodes = this._closestNodes
+    // merge aborted work / avoid leaking announcements
+    const latest = this._closestNodes
+
     if (!nodes) {
-      nodes = this._closestNodes
-    } else if (this._closestNodes && this._closestNodes !== nodes) {
+      nodes = latest
+    } else if (latest && latest !== nodes) {
       const len = nodes.length
 
-      for (const newer of this._closestNodes) {
+      for (const newer of latest) {
         if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
       }
     }
@@ -376,10 +394,16 @@ module.exports = class PeerDiscovery {
     }).catch(this._onerror)
   }
 
-  _destroy() {
+  async _destroy() {
     if (this.destroyed) return
     this.destroyed = true
-    return this.abort(noop)
+
+    try {
+      await this.abort(noop)
+    } catch (err) {
+      // ignore
+      safetyCatch(err)
+    }
   }
 
   async suspend({ log = noop } = {}) {
@@ -387,15 +411,16 @@ module.exports = class PeerDiscovery {
     this.suspended = true
     try {
       await this.abort(log)
-    } catch {
+    } catch (err) {
       // ignore
+      safetyCatch(err)
     }
   }
 
-  async resume() {
+  resume() {
     if (!this.suspended) return
     this.suspended = false
-    return this.refresh()
+    this.refresh()
   }
 }
 

@@ -3,6 +3,7 @@ const b4a = require('b4a')
 const DHT = require('hyperdht')
 const createTestnet = require('hyperdht/testnet')
 const Discovery = require('..')
+const { toHex } = b4a
 
 test('basic api', async (t) => {
   const testnet = await createTestnet()
@@ -261,6 +262,61 @@ test('parallel announces performs one-time fast-refresh', async (t) => {
   await peerB.destroy()
   await peerA.destroy()
   await testnet.destroy()
+})
+
+test('abort() does not leak dht announces', async (t) => {
+  const topic = b4a.alloc(32, 4)
+  const oldNodes = [{ id: b4a.alloc(32, 1) }]
+  const newNodes = [{ id: b4a.alloc(32, 2) }]
+
+  let release = null
+  let onquery = null
+  const queryStarted = new Promise((resolve) => {
+    onquery = resolve
+  })
+
+  const query = {
+    closestNodes: newNodes,
+    destroy() {
+      release()
+    },
+    async *[Symbol.asyncIterator]() {
+      onquery()
+
+      await new Promise((resolve) => {
+        release = resolve
+      })
+    }
+  }
+
+  let unannounceCalls = null
+  const dht = {
+    announce() {
+      return query
+    },
+    async unannounce(topic, keyPair, opts) {
+      unannounceCalls = opts.closestNodes
+    }
+  }
+
+  const discovery = new Discovery(dht, topic, { announce: true, seed: seed(7) })
+
+  discovery._closestNodes = oldNodes
+  discovery.refresh()
+  await queryStarted
+
+  discovery.suspended = true
+  await discovery.abort()
+
+  let announced = new Set()
+  for (const n of [...oldNodes, ...newNodes]) {
+    announced.add(toHex(n.id))
+  }
+  announced = Array.from(announced)
+
+  const unannounced = unannounceCalls.map((n) => toHex(n.id))
+
+  t.alike(unannounced, announced, 'unannounces old and new closest nodes')
 })
 
 async function spawnPeer(bootstrap, topic, opts = {}) {

@@ -27,7 +27,7 @@ discovery.refresh()
 await discovery.flush()
 
 await discovery.suspend()
-await discovery.resume()
+discovery.resume()
 await discovery.destroy()
 
 await server.close()
@@ -101,7 +101,7 @@ Use `refresh()` to restart.
 
 Abort the active query and unannounce if needed.
 
-### `await discovery.resume()`
+### `discovery.resume()`
 
 Resume and refresh.
 
