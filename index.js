@@ -328,6 +328,11 @@ module.exports = class PeerDiscovery {
 
     this._settlePending(this._queued) // release all
 
+    if (this._timer) {
+      clearTimeout(this._timer)
+      this._timer = null
+    }
+
     if (this._isRunning) return
     log('Aborting discovery (post refresh)', id)
 
