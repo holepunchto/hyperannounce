@@ -336,14 +336,7 @@ module.exports = class PeerDiscovery {
     if (this._isRunning) return
     log('Aborting discovery (post refresh)', id)
 
-    let nodes = this._closestNodes
-    if (this._closestNodes && this._closestNodes !== nodes) {
-      const len = nodes.length
-
-      for (const newer of this._closestNodes) {
-        if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
-      }
-    }
+    const nodes = this._closestNodes
 
     if (this._needsUnannounce) {
       log('Unannouncing discovery', id)
