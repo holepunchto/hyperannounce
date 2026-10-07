@@ -401,13 +401,4 @@ module.exports = class PeerDiscovery {
   }
 }
 
-function hasNode(nodes, len, node) {
-  for (let i = 0; i < len; i++) {
-    const existing = nodes[i]
-    if (existing.id && b4a.equals(existing.id, node.id)) return true
-  }
-
-  return false
-}
-
 function noop() {}
