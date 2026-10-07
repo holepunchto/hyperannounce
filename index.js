@@ -398,7 +398,7 @@ module.exports = class PeerDiscovery {
     }
   }
 
-  async resume() {
+  resume() {
     if (!this.suspended) return
     this.suspended = false
     return this.refresh()
