@@ -316,33 +316,34 @@ module.exports = class PeerDiscovery {
 
   async _abort(snapshot, lock, unannounce, log) {
     const id = log === noop ? '' : toHex(this.topic)
-
-    log('Aborting discovery', id)
-    if (this._wait) await this._wait
-    log('Aborting discovery (post wait)', id)
-
-    if (this._activeQuery) {
-      this._activeQuery.destroy()
-      this._activeQuery = null
-    }
-
-    // snapshot pre-abort
-    let nodes = this._closestNodes
-
-    if (this._timer) {
-      clearTimeout(this._timer)
-      this._timer = null
-    }
-
-    const locked = await lock
-    if (!locked) return
-
-    if (this._timer) {
-      clearTimeout(this._timer)
-      this._timer = null
-    }
+    let locked = false
 
     try {
+      log('Aborting discovery', id)
+      if (this._wait) await this._wait
+      log('Aborting discovery (post wait)', id)
+
+      if (this._activeQuery) {
+        this._activeQuery.destroy()
+        this._activeQuery = null
+      }
+
+      // snapshot pre-abort
+      let nodes = this._closestNodes
+
+      if (this._timer) {
+        clearTimeout(this._timer)
+        this._timer = null
+      }
+
+      locked = await lock
+      if (!locked) return
+
+      if (this._timer) {
+        clearTimeout(this._timer)
+        this._timer = null
+      }
+
       if (!unannounce) return
       log('Aborting discovery (post refresh)', id)
 
@@ -374,8 +375,12 @@ module.exports = class PeerDiscovery {
         log('Unannouncing discovery (done)', id)
       }
     } finally {
-      this._settlePending(snapshot)
-      this._mutex.unlock()
+      // the lock was taken in abort(), so it must be released even if we threw before acquiring it
+      if (!locked) locked = await lock
+      if (locked) {
+        this._settlePending(snapshot)
+        this._mutex.unlock()
+      }
     }
   }
 
