@@ -4,6 +4,7 @@ const DHT = require('hyperdht')
 const createTestnet = require('hyperdht/testnet')
 const Discovery = require('..')
 const { toHex } = b4a
+const { throttleDHT } = require('./helpers')
 
 test('basic api', async (t) => {
   const testnet = await createTestnet()
@@ -11,25 +12,25 @@ test('basic api', async (t) => {
   const peer = await spawnPeer(bootstrap)
 
   const topic = b4a.alloc(32, 1)
-  const disc = new Discovery(peer.dht, topic, {
+  const discovery = new Discovery(peer.dht, topic, {
     seed: seed(0),
     relayAddresses: () => peer.server.relayAddresses,
     onpeer: noop
   })
 
-  t.is(disc.active, false, 'inactive')
-  disc.setAnnounce(true)
+  t.is(discovery.active, false, 'inactive')
+  discovery.setAnnounce(true)
 
   const ts = Date.now()
-  disc.refresh()
-  await disc.flush()
+  discovery.refresh()
+  await discovery.flush()
 
-  t.is(disc.active, true, 'active')
-  t.ok(disc.lastRefreshed >= ts)
-  t.ok(disc.lastRefreshed <= Date.now())
+  t.is(discovery.active, true, 'active')
+  t.ok(discovery.lastRefreshed >= ts)
+  t.ok(discovery.lastRefreshed <= Date.now())
 
-  await disc.destroy()
-  t.is(disc.active, false, 'deactivated')
+  await discovery.destroy()
+  t.is(discovery.active, false, 'deactivated')
 
   await peer.destroy()
   await testnet.destroy()
@@ -142,27 +143,30 @@ test('abort and restart', async (t) => {
   const peer = await spawnPeer(bootstrap)
 
   const topic = b4a.alloc(32, 1)
-  const disc = new Discovery(peer.dht, topic, {
+  const discovery = new Discovery(peer.dht, topic, {
     seed: seed(0),
     relayAddresses: () => peer.server.relayAddresses,
     onpeer: noop
   })
 
-  t.is(disc.active, false, 'inactive')
-  disc.setAnnounce(true)
+  t.is(discovery.active, false, 'inactive')
+  discovery.setAnnounce(true)
 
-  disc.refresh()
-  t.is(disc.active, true, 'active')
+  discovery.refresh()
+  await discovery.flush()
+  t.is(discovery.active, true, 'active')
 
-  await disc.abort()
-  t.is(disc.active, false, 'deactivated')
+  discovery.abort(true)
+  await discovery.flush()
+  t.is(discovery.active, false, 'deactivated')
 
-  disc.refresh()
+  discovery.refresh()
 
-  t.is(disc.active, true, 'reactivated')
+  t.is(discovery.active, true, 'reactivated')
+  await discovery.flush()
 
-  await disc.destroy()
-  t.is(disc.active, false, 'destroyed')
+  await discovery.destroy()
+  t.is(discovery.active, false, 'destroyed')
 
   await peer.destroy()
   await testnet.destroy()
@@ -174,28 +178,28 @@ test('bump api', async (t) => {
   const peer = await spawnPeer(bootstrap)
 
   const topic = b4a.alloc(32, 1)
-  const disc = new Discovery(peer.dht, topic, {
+  const discovery = new Discovery(peer.dht, topic, {
     seed: seed(0),
     relayAddresses: () => peer.server.relayAddresses,
     onpeer: noop
   })
 
-  t.is(disc.bump.announced, -1)
-  t.is(disc.bump.local, -1)
-  t.is(disc.bump.seen, -1)
+  t.is(discovery.bump.announced, -1)
+  t.is(discovery.bump.local, -1)
+  t.is(discovery.bump.seen, -1)
 
-  disc.setAnnounce(true, 0)
-  t.is(disc.bump.local, 0)
+  discovery.setAnnounce(true, 0)
+  t.is(discovery.bump.local, 0)
 
-  disc.update(77)
-  t.is(disc.bump.local, 77)
-  t.is(disc.bump.announced, -1)
+  discovery.update(77)
+  t.is(discovery.bump.local, 77)
+  t.is(discovery.bump.announced, -1)
 
-  await disc.refresh()
-  await disc.flush()
-  t.is(disc.bump.announced, 77)
+  discovery.refresh()
+  await discovery.flush()
+  t.is(discovery.bump.announced, 77)
 
-  await disc.destroy()
+  await discovery.destroy()
   await peer.destroy()
   await testnet.destroy()
 })
@@ -306,7 +310,7 @@ test('abort() does not leak dht announces', async (t) => {
   await queryStarted
 
   discovery.suspended = true
-  await discovery.abort()
+  await discovery.abort(true)
 
   let announced = new Set()
   for (const n of [...oldNodes, ...newNodes]) {
@@ -317,6 +321,92 @@ test('abort() does not leak dht announces', async (t) => {
   const unannounced = unannounceCalls.map((n) => toHex(n.id))
 
   t.alike(unannounced, announced, 'unannounces old and new closest nodes')
+})
+
+test('refresh() and flush()', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const topic = b4a.alloc(32, 4)
+  const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
+
+  const { discovery } = peer
+  t.is(discovery._queued, 0)
+
+  discovery.refresh()
+  t.is(discovery._queued, 1, 'queued')
+
+  discovery.refresh()
+  t.is(discovery._queued, 1, 'debounced')
+
+  t.is(discovery._applied, 0, 'work pending')
+
+  const cursor = await discovery.flush()
+
+  t.is(discovery._applied, 1, 'work done')
+  t.is(cursor, 1, 'flush snapshots')
+
+  discovery.refresh()
+  t.is(discovery._queued, 2, 're-queued')
+
+  await peer.destroy()
+  await testnet.destroy()
+})
+
+test('refresh(), abort() and flush()', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const topic = b4a.alloc(32, 4)
+  const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
+  const { discovery } = peer
+
+  const { cork, uncork } = throttleDHT(t, discovery.dht)
+
+  const order = []
+  const recordEvent = (ev) => {
+    t.comment('event:', ev)
+    order.push(ev)
+  }
+
+  discovery.refresh()
+  const announced = discovery.flush().then((cursor) => {
+    recordEvent('announce')
+    t.is(cursor, 1)
+  })
+
+  t.is(discovery._queued, 1)
+
+  cork()
+  discovery.abort(true)
+
+  t.is(discovery._queued, 2, 'abort counts as work')
+
+  const aborted = discovery.flush().then((cursor) => {
+    recordEvent('abort')
+    t.is(cursor, 2, 'flush snapshots abort')
+  })
+
+  await announced
+  t.is(discovery._applied, 1, 'announced')
+  t.is(discovery._queued, 2, 'abort is inflight')
+
+  discovery.refresh()
+  t.is(discovery._queued, 3, 'reannounce queued')
+
+  const reannounced = discovery.flush().then((cursor) => {
+    recordEvent('reannounced')
+    t.is(cursor, 3, 'reannounce done')
+  })
+
+  await aborted
+
+  uncork()
+
+  await reannounced
+
+  t.alike(order, ['announce', 'abort', 'reannounced'])
+
+  await peer.destroy()
+  await testnet.destroy()
 })
 
 async function spawnPeer(bootstrap, topic, opts = {}) {

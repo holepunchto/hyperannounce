@@ -90,9 +90,9 @@ Queues an announce or lookup, also starts background discovery cycle.
 
 ### `await discovery.flush()`
 
-Waits for any in-flight queries to settle.
+Waits for any in-flight queries or aborts to settle.
 
-### `await discovery.abort()`
+### `discovery.abort()`
 
 Abort the active query and stop discovery cycle.
 Use `refresh()` to restart.
