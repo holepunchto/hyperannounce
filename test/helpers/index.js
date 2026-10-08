@@ -1,7 +1,7 @@
 exports.throttleDHT = function throttleDHT(t, dht) {
   const query = dht.query
   let corked = false
-  let pending = false
+  let pending = null
 
   dht.query = function (...args) {
     if (corked && pending) {
@@ -13,9 +13,10 @@ exports.throttleDHT = function throttleDHT(t, dht) {
     const result = query.call(this, ...args)
     if (!corked) return result
 
-    pending = true
+    const token = {}
+    pending = token
     return throttleQuery(result, () => {
-      pending = false
+      if (pending === token) pending = null
     })
   }
 
@@ -32,6 +33,16 @@ exports.throttleDHT = function throttleDHT(t, dht) {
 function throttleQuery(query, done) {
   return new Proxy(query, {
     get(target, prop, receiver) {
+      if (prop === 'finished') {
+        return async function (...args) {
+          try {
+            return await target.finished(...args)
+          } finally {
+            done()
+          }
+        }
+      }
+
       if (prop !== Symbol.asyncIterator) return Reflect.get(target, prop, receiver)
 
       return function () {

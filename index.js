@@ -71,9 +71,10 @@ module.exports = class PeerDiscovery {
     this._queued = 0
     this._applied = 0
     this._subscribers = []
+    this._refreshPending = false
     this._fastRetry = fastRetry
 
-    this._mutex = new ScopeLock({ debounce: true })
+    this._mutex = new ScopeLock()
   }
 
   get announce() {
@@ -135,11 +136,14 @@ module.exports = class PeerDiscovery {
     if (this.destroyed) throw new Error('PeerDiscovery is destroyed')
     if (this.suspended) return
 
-    this._queued++
-    this._refresh().catch(this._onerror)
+    if (this._refreshPending) return
+
+    this._refreshPending = true
+    const snapshot = ++this._queued
+    this._refresh(snapshot).catch(this._onerror)
   }
 
-  async _refresh() {
+  async _refresh(snapshot) {
     if (!this._isRunning) return
 
     if (this._wait) {
@@ -148,9 +152,8 @@ module.exports = class PeerDiscovery {
     }
 
     const locked = await this._mutex.lock()
+    this._refreshPending = false
     if (!locked) return this._mutex.flush() // debounced
-
-    const snapshot = this._queued
 
     if (!this._isRunning) {
       // no-op
@@ -271,8 +274,8 @@ module.exports = class PeerDiscovery {
         break
       }
 
-      const { settle } = this._subscribers.shift()
-      settle()
+      const subscriber = this._subscribers.shift()
+      subscriber.settle(subscriber.target)
     }
 
     if (this._applied < applied) {
@@ -305,7 +308,13 @@ module.exports = class PeerDiscovery {
     return this.destroying
   }
 
-  async abort(log = noop) {
+  abort(unannounce = false, log = noop) {
+    const snapshot = ++this._queued
+    const lock = this._mutex.lock()
+    return this._abort(snapshot, lock, unannounce, log)
+  }
+
+  async _abort(snapshot, lock, unannounce, log) {
     const id = log === noop ? '' : toHex(this.topic)
 
     log('Aborting discovery', id)
@@ -325,48 +334,48 @@ module.exports = class PeerDiscovery {
       this._timer = null
     }
 
-    try {
-      await this._mutex.flush()
-    } catch {
-      // If the destroy causes the refresh to fail, suppress it.
-    }
-
-    this._settlePending(this._queued) // release all
+    const locked = await lock
+    if (!locked) return
 
     if (this._timer) {
       clearTimeout(this._timer)
       this._timer = null
     }
 
-    if (this._isRunning) return
-    log('Aborting discovery (post refresh)', id)
+    try {
+      if (!unannounce) return
+      log('Aborting discovery (post refresh)', id)
 
-    // merge aborted work / avoid leaking announcements
-    const latest = this._closestNodes
+      // merge aborted work / avoid leaking announcements
+      const latest = this._closestNodes
 
-    if (!nodes) {
-      nodes = latest
-    } else if (latest && latest !== nodes) {
-      const len = nodes.length
+      if (!nodes) {
+        nodes = latest
+      } else if (latest && latest !== nodes) {
+        const len = nodes.length
 
-      for (const newer of latest) {
-        if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
+        for (const newer of latest) {
+          if (newer.id && !hasNode(nodes, len, newer)) nodes.push(newer)
+        }
       }
-    }
 
-    if (this._needsUnannounce) {
-      log('Unannouncing discovery', id)
-      if (nodes && nodes.length) {
-        this._updateStats('unannounce')
+      if (this._needsUnannounce) {
+        log('Unannouncing discovery', id)
+        if (nodes && nodes.length) {
+          this._updateStats('unannounce')
 
-        await this.dht.unannounce(this.topic, this.keyPair, {
-          closestNodes: nodes,
-          onlyClosestNodes: true,
-          force: true
-        })
+          await this.dht.unannounce(this.topic, this.keyPair, {
+            closestNodes: nodes,
+            onlyClosestNodes: true,
+            force: true
+          })
+        }
+        this._needsUnannounce = false
+        log('Unannouncing discovery (done)', id)
       }
-      this._needsUnannounce = false
-      log('Unannouncing discovery (done)', id)
+    } finally {
+      this._settlePending(snapshot)
+      this._mutex.unlock()
     }
   }
 
@@ -399,7 +408,7 @@ module.exports = class PeerDiscovery {
     this.destroyed = true
 
     try {
-      await this.abort(noop)
+      await this.abort(true, noop)
     } catch (err) {
       // ignore
       safetyCatch(err)
@@ -410,7 +419,7 @@ module.exports = class PeerDiscovery {
     if (this.suspended) return
     this.suspended = true
     try {
-      await this.abort(log)
+      await this.abort(true, log)
     } catch (err) {
       // ignore
       safetyCatch(err)

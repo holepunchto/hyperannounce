@@ -323,7 +323,7 @@ test('abort() does not leak dht announces', async (t) => {
   t.alike(unannounced, announced, 'unannounces old and new closest nodes')
 })
 
-test.solo('refresh() and flush()', async (t) => {
+test('refresh() and flush()', async (t) => {
   const testnet = await createTestnet()
   const { bootstrap } = testnet
   const topic = b4a.alloc(32, 4)
@@ -339,21 +339,20 @@ test.solo('refresh() and flush()', async (t) => {
   t.is(discovery._queued, 1, 'debounced')
 
   t.is(discovery._applied, 0, 'work pending')
-  const flushed = discovery.flush()
 
-  discovery.refresh()
-  t.is(discovery._queued, 2, 're-queued')
-
-  const cursor = await flushed
+  const cursor = await discovery.flush()
 
   t.is(discovery._applied, 1, 'work done')
   t.is(cursor, 1, 'flush snapshots')
+
+  discovery.refresh()
+  t.is(discovery._queued, 2, 're-queued')
 
   await peer.destroy()
   await testnet.destroy()
 })
 
-test.solo('refresh(), abort() and flush()', async (t) => {
+test('refresh(), abort() and flush()', async (t) => {
   const testnet = await createTestnet()
   const { bootstrap } = testnet
   const topic = b4a.alloc(32, 4)
