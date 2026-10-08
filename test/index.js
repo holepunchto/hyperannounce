@@ -363,7 +363,7 @@ test('refresh(), abort() and flush()', async (t) => {
 
   const order = []
   const recordEvent = (ev) => {
-    console.log(ev)
+    t.comment('event:', ev)
     order.push(ev)
   }
 
