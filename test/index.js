@@ -12,25 +12,25 @@ test('basic api', async (t) => {
   const peer = await spawnPeer(bootstrap)
 
   const topic = b4a.alloc(32, 1)
-  const disc = new Discovery(peer.dht, topic, {
+  const discovery = new Discovery(peer.dht, topic, {
     seed: seed(0),
     relayAddresses: () => peer.server.relayAddresses,
     onpeer: noop
   })
 
-  t.is(disc.active, false, 'inactive')
-  disc.setAnnounce(true)
+  t.is(discovery.active, false, 'inactive')
+  discovery.setAnnounce(true)
 
   const ts = Date.now()
-  disc.refresh()
-  await disc.flush()
+  discovery.refresh()
+  await discovery.flush()
 
-  t.is(disc.active, true, 'active')
-  t.ok(disc.lastRefreshed >= ts)
-  t.ok(disc.lastRefreshed <= Date.now())
+  t.is(discovery.active, true, 'active')
+  t.ok(discovery.lastRefreshed >= ts)
+  t.ok(discovery.lastRefreshed <= Date.now())
 
-  await disc.destroy()
-  t.is(disc.active, false, 'deactivated')
+  await discovery.destroy()
+  t.is(discovery.active, false, 'deactivated')
 
   await peer.destroy()
   await testnet.destroy()
@@ -143,30 +143,30 @@ test('abort and restart', async (t) => {
   const peer = await spawnPeer(bootstrap)
 
   const topic = b4a.alloc(32, 1)
-  const disc = new Discovery(peer.dht, topic, {
+  const discovery = new Discovery(peer.dht, topic, {
     seed: seed(0),
     relayAddresses: () => peer.server.relayAddresses,
     onpeer: noop
   })
 
-  t.is(disc.active, false, 'inactive')
-  disc.setAnnounce(true)
+  t.is(discovery.active, false, 'inactive')
+  discovery.setAnnounce(true)
 
-  disc.refresh()
-  await disc.flush()
-  t.is(disc.active, true, 'active')
+  discovery.refresh()
+  await discovery.flush()
+  t.is(discovery.active, true, 'active')
 
-  disc.abort(true)
-  await disc.flush()
-  t.is(disc.active, false, 'deactivated')
+  discovery.abort(true)
+  await discovery.flush()
+  t.is(discovery.active, false, 'deactivated')
 
-  disc.refresh()
+  discovery.refresh()
 
-  t.is(disc.active, true, 'reactivated')
-  await disc.flush()
+  t.is(discovery.active, true, 'reactivated')
+  await discovery.flush()
 
-  await disc.destroy()
-  t.is(disc.active, false, 'destroyed')
+  await discovery.destroy()
+  t.is(discovery.active, false, 'destroyed')
 
   await peer.destroy()
   await testnet.destroy()
@@ -178,28 +178,28 @@ test('bump api', async (t) => {
   const peer = await spawnPeer(bootstrap)
 
   const topic = b4a.alloc(32, 1)
-  const disc = new Discovery(peer.dht, topic, {
+  const discovery = new Discovery(peer.dht, topic, {
     seed: seed(0),
     relayAddresses: () => peer.server.relayAddresses,
     onpeer: noop
   })
 
-  t.is(disc.bump.announced, -1)
-  t.is(disc.bump.local, -1)
-  t.is(disc.bump.seen, -1)
+  t.is(discovery.bump.announced, -1)
+  t.is(discovery.bump.local, -1)
+  t.is(discovery.bump.seen, -1)
 
-  disc.setAnnounce(true, 0)
-  t.is(disc.bump.local, 0)
+  discovery.setAnnounce(true, 0)
+  t.is(discovery.bump.local, 0)
 
-  disc.update(77)
-  t.is(disc.bump.local, 77)
-  t.is(disc.bump.announced, -1)
+  discovery.update(77)
+  t.is(discovery.bump.local, 77)
+  t.is(discovery.bump.announced, -1)
 
-  disc.refresh()
-  await disc.flush()
-  t.is(disc.bump.announced, 77)
+  discovery.refresh()
+  await discovery.flush()
+  t.is(discovery.bump.announced, 77)
 
-  await disc.destroy()
+  await discovery.destroy()
   await peer.destroy()
   await testnet.destroy()
 })
