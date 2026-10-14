@@ -309,7 +309,7 @@ module.exports = class PeerDiscovery {
   }
 
   abort(unannounce = false, log = noop) {
-    if (!this.active) {
+    if (!this.active && !(unannounce && this._needsUnannounce)) {
       log('Abort skipped')
       return
     }

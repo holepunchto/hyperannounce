@@ -428,6 +428,41 @@ test('abort() noops when inactive', async (t) => {
   await testnet.destroy()
 })
 
+test('abort(false) then destroy() still unannounces', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+
+  const topic = b4a.alloc(32, 5)
+  const server = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(8) })
+  const client = await spawnPeer(bootstrap, topic)
+
+  server.discovery.refresh()
+  await server.discovery.flush()
+  t.is(server.discovery.active, true, 'announce cycle scheduled its next refresh')
+  t.is(server.discovery._needsUnannounce, true, 'still owes an unannounce')
+
+  client.discovery.refresh()
+  await client.discovery.flush()
+  t.is(hasPeer(client.seen, server.discovery.keyPair.publicKey), true, 'announced')
+
+  // stop the refresh cycle without unannouncing, like e.g. a caller pausing discovery
+  await server.discovery.abort(false)
+  t.is(server.discovery.active, false, 'inactive after abort(false)')
+  t.is(server.discovery._needsUnannounce, true, 'unannounce is still owed')
+
+  // destroy()/suspend() both call abort(true, ...) internally to flush that debt
+  await server.discovery.destroy()
+
+  client.seen.length = 0
+  client.discovery.refresh()
+  await client.discovery.flush()
+  t.is(hasPeer(client.seen, server.discovery.keyPair.publicKey), false, 'unannounced by destroy()')
+
+  await client.destroy()
+  await server.destroy()
+  await testnet.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()
