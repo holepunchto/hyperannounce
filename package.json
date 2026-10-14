@@ -1,6 +1,6 @@
 {
   "name": "replicator-discovery",
-  "version": "1.2.2",
+  "version": "1.2.4",
   "description": "peer discovery for replicator",
   "main": "index.js",
   "exports": {
