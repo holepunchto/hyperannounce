@@ -309,6 +309,12 @@ module.exports = class PeerDiscovery {
   }
 
   abort(unannounce = false, log = noop) {
+    if (!this.active && !(unannounce && this._needsUnannounce)) {
+      const id = log === noop ? '' : toHex(this.topic)
+      log('Abort skipped', id)
+      return
+    }
+
     const snapshot = ++this._queued
     const lock = this._mutex.lock()
     return this._abort(snapshot, lock, unannounce, log)
