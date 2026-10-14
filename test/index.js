@@ -409,6 +409,25 @@ test('refresh(), abort() and flush()', async (t) => {
   await testnet.destroy()
 })
 
+test('abort() noops when inactive', async (t) => {
+  t.plan(5)
+
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+  const topic = b4a.alloc(32, 4)
+  const peer = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
+  const { discovery } = peer
+
+  t.is(discovery._queued, 0, 'discovery._queued = 0')
+  t.absent(discovery.active, 'discovery is inactive')
+  await discovery.abort(false, (msg) => t.is(msg, 'Abort skipped', 'got expected log for skipping'))
+  t.is(discovery._queued, 0, 'discovery._queued untouched')
+  t.absent(discovery.active, 'discovery still inactive')
+
+  await peer.destroy()
+  await testnet.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()
