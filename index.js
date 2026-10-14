@@ -310,7 +310,8 @@ module.exports = class PeerDiscovery {
 
   abort(unannounce = false, log = noop) {
     if (!this.active && !(unannounce && this._needsUnannounce)) {
-      log('Abort skipped')
+      const id = log === noop ? '' : toHex(this.topic)
+      log('Abort skipped', id)
       return
     }
 
