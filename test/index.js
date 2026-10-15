@@ -70,6 +70,32 @@ test('announce and emit peers', async (t) => {
   await testnet.destroy()
 })
 
+test('limit option caps number of discovered peers', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+
+  const topic = b4a.alloc(32, 9)
+  const serverA = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(9) })
+  const serverB = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(10) })
+
+  serverA.discovery.refresh()
+  serverB.discovery.refresh()
+  await Promise.all([serverA.discovery.flush(), serverB.discovery.flush()])
+
+  const client = await spawnPeer(bootstrap, topic, { limit: 1 })
+
+  client.discovery.refresh()
+  await client.discovery.flush()
+
+  t.is(client.discovery.limit, 1)
+  t.is(client.seen.length, 1, 'only one peer discovered due to limit')
+
+  await client.destroy()
+  await serverB.destroy()
+  await serverA.destroy()
+  await testnet.destroy()
+})
+
 test('suspend & resume', async (t) => {
   const testnet = await createTestnet()
   const { bootstrap } = testnet
