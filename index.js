@@ -76,6 +76,8 @@ module.exports = class PeerDiscovery {
     this._refreshPending = false
     this._fastRetry = fastRetry
     this._retryDelay = 0
+    this._fastRetryTimer = null
+    this._fastRetryResolve = null
 
     this._mutex = new ScopeLock()
   }
@@ -177,9 +179,9 @@ module.exports = class PeerDiscovery {
 
       if (this._fastRetry > 0 && firstRun && topicEmpty && this._isRunning) {
         const delay = Math.random() * this._fastRetry
-        await new Promise((resolve) => setTimeout(resolve, delay))
+        await this._sleepFastRetry(delay)
 
-        await this._query() // fast-retry before mutex release
+        if (this._isRunning) await this._query() // fast-retry before mutex release
       }
 
       failed = false
@@ -194,6 +196,26 @@ module.exports = class PeerDiscovery {
 
       if (this._isRunning) this._scheduleRefresh() // schedule next
     }
+  }
+
+  _sleepFastRetry(ms) {
+    return new Promise((resolve) => {
+      this._fastRetryResolve = resolve
+      this._fastRetryTimer = setTimeout(() => {
+        this._fastRetryTimer = null
+        this._fastRetryResolve = null
+        resolve()
+      }, ms)
+    })
+  }
+
+  _cancelFastRetry() {
+    if (!this._fastRetryTimer) return
+    clearTimeout(this._fastRetryTimer)
+    const resolve = this._fastRetryResolve
+    this._fastRetryTimer = null
+    this._fastRetryResolve = null
+    resolve()
   }
 
   async _query() {
@@ -338,6 +360,7 @@ module.exports = class PeerDiscovery {
 
     try {
       log('Aborting discovery', id)
+      this._cancelFastRetry()
       if (this._wait) await this._wait
       log('Aborting discovery (post wait)', id)
 

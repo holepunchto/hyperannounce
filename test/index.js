@@ -529,6 +529,34 @@ test('failed query is retried soon', async (t) => {
   await discovery.destroy()
 })
 
+test('suspend() is not blocked by an in-flight fastRetry delay', async (t) => {
+  const topic = b4a.alloc(32, 12)
+
+  const dht = {
+    lookup() {
+      return {
+        closestNodes: [],
+        destroy() {},
+        async *[Symbol.asyncIterator]() {}
+      }
+    }
+  }
+
+  const discovery = new Discovery(dht, topic, { fastRetry: 2000, seed: seed(12) })
+
+  discovery.refresh()
+
+  // let the (empty) first query settle so the fastRetry sleep starts
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.ok(discovery._fastRetryTimer !== null, 'fastRetry delay is in-flight')
+
+  const start = Date.now()
+  await discovery.suspend()
+  t.ok(Date.now() - start < 500, 'suspend() did not wait out the fastRetry delay')
+
+  await discovery.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()
