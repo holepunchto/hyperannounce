@@ -548,7 +548,7 @@ test('suspend() is not blocked by an in-flight fastRetry delay', async (t) => {
 
   // let the (empty) first query settle so the fastRetry sleep starts
   await new Promise((resolve) => setTimeout(resolve, 20))
-  t.ok(discovery._fastRetryTimer !== null, 'fastRetry delay is in-flight')
+  t.ok(discovery._fastRetrySignal._promise !== null, 'fastRetry delay is in-flight')
 
   const start = Date.now()
   await discovery.suspend()
