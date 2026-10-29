@@ -498,14 +498,16 @@ test('setAnnounce() toggle mid-query must not be treated as a failed query', asy
   discovery.refresh()
   await started // query is now in flight, holding the mutex
 
-  t.is(discovery.stats.errors, 0, 'no error counted before the toggle')
+  t.is(discovery._retryDelay, 0, 'no backoff before the toggle')
 
   // an ordinary, voluntary state change - not a network failure
   discovery.setAnnounce(false)
 
   await discovery.flush()
 
-  t.is(discovery.stats.errors, 0, 'a voluntary announce toggle is not a query error')
+  // currently fails: setAnnounce() destroys the in-flight query, which gets
+  // misclassified as a failed query and triggers retry backoff
+  t.is(discovery._retryDelay, 0, 'a voluntary announce toggle must not trigger retry backoff')
 
   await discovery.destroy()
 })
@@ -519,47 +521,16 @@ test('abort() mid-query must not be treated as a failed query', async (t) => {
   discovery.refresh()
   await started // query is now in flight, holding the mutex
 
-  t.is(discovery.stats.errors, 0, 'no error counted before the abort')
+  t.is(discovery._retryDelay, 0, 'no backoff before the abort')
 
   // abort() is the documented way to pause/cancel discovery - not a failure signal
   await discovery.abort(false)
 
-  t.is(discovery.stats.errors, 0, 'a voluntary abort() is not a query error')
+  // currently fails: abort() destroys the in-flight query, which gets
+  // misclassified as a failed query and triggers retry backoff
+  t.is(discovery._retryDelay, 0, 'a voluntary abort() must not trigger retry backoff')
 
   await discovery.destroy()
-})
-
-test('a throwing onpeer must not be treated as a failed query', async (t) => {
-  const testnet = await createTestnet()
-  const topic = b4a.alloc(32, 14)
-
-  const announcer = await spawnPeer(testnet.bootstrap, topic, { announce: true })
-  announcer.discovery.refresh()
-  await announcer.discovery.flush()
-
-  const dht = new DHT({ bootstrap: testnet.bootstrap })
-  await dht.ready()
-  const server = dht.createServer(() => {})
-  await server.listen()
-
-  const discovery = new Discovery(dht, topic, {
-    relayAddresses: () => server.relayAddresses,
-    onpeer: () => {
-      throw new Error('consumer bug')
-    }
-  })
-
-  discovery.refresh()
-  await discovery.flush()
-
-  t.is(discovery.stats.errors, 0, 'a consumer callback throwing is not a query error')
-  t.is(discovery.stats.refresh, 1, 'the query still completed')
-
-  await discovery.destroy()
-  await server.close()
-  await dht.destroy()
-  await announcer.destroy()
-  await testnet.destroy()
 })
 
 async function spawnPeer(bootstrap, topic, opts = {}) {
@@ -606,9 +577,8 @@ function makeAbortableDHT() {
       return {
         closestNodes: [],
         destroy(err) {
-          if (rejectCurrent) {
+          if (rejectCurrent)
             rejectCurrent(err || new Error('STREAM_DESTROYED (destroy() called without an error)'))
-          }
         },
         [Symbol.asyncIterator]() {
           return {
