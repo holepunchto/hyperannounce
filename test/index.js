@@ -489,6 +489,46 @@ test('abort(false) then destroy() still unannounces', async (t) => {
   await testnet.destroy()
 })
 
+test('failed query is retried soon', async (t) => {
+  const topic = b4a.alloc(32, 6)
+
+  let calls = 0
+  let onretry = null
+  const retried = new Promise((resolve) => {
+    onretry = resolve
+  })
+
+  const dht = {
+    announce() {
+      const fail = ++calls === 1
+      if (!fail) onretry()
+
+      return {
+        closestNodes: [],
+        destroy() {},
+        async *[Symbol.asyncIterator]() {
+          if (fail) throw new Error('Too few nodes responded')
+        }
+      }
+    }
+  }
+
+  const discovery = new Discovery(dht, topic, { announce: true, seed: seed(11) })
+
+  discovery.refresh()
+  await discovery.flush()
+  t.is(calls, 1, 'first query failed')
+
+  const failedAt = Date.now()
+  await retried
+  t.ok(Date.now() - failedAt < 6000, 'retried after a few seconds')
+
+  await discovery.flush()
+  t.is(discovery._retryDelay, 0, 'backoff reset on success')
+
+  await discovery.destroy()
+})
+
 test('setAnnounce() toggle mid-query must not be treated as a failed query', async (t) => {
   const topic = b4a.alloc(32, 12)
   const { dht, started } = makeAbortableDHT()
@@ -577,8 +617,9 @@ function makeAbortableDHT() {
       return {
         closestNodes: [],
         destroy(err) {
-          if (rejectCurrent)
+          if (rejectCurrent) {
             rejectCurrent(err || new Error('STREAM_DESTROYED (destroy() called without an error)'))
+          }
         },
         [Symbol.asyncIterator]() {
           return {
