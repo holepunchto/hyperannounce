@@ -8,8 +8,6 @@ const { toHex } = b4a
 const REFRESH_INTERVAL = 1000 * 60 * 10 // 10 min
 const RANDOM_JITTER = 1000 * 60 * 2 // 2 min
 const DELAY_GRACE_PERIOD = 1000 * 30 // 30s
-const RETRY_INTERVAL = 1000 * 5 // 5s, doubles per failed query
-const MAX_RETRY_INTERVAL = 1000 * 60 // 1 min
 
 const MAX_DISCOVERY_CACHE = 64
 
@@ -75,7 +73,7 @@ module.exports = class PeerDiscovery {
     this._subscribers = []
     this._refreshPending = false
     this._fastRetry = fastRetry
-    this._retryDelay = 0
+    this._cancelled = false
 
     this._mutex = new ScopeLock()
   }
@@ -96,7 +94,10 @@ module.exports = class PeerDiscovery {
     this._announce = announce
     this.bump.announced = -1
 
-    if (this._activeQuery) this._activeQuery.destroy()
+    if (this._activeQuery) {
+      this._cancelled = true
+      this._activeQuery.destroy()
+    }
   }
 
   update(bump) {
@@ -111,7 +112,6 @@ module.exports = class PeerDiscovery {
     let delay = timeLeft + jitter
     if (timeLeft < 0) delay = jitter
     if (eager) delay = jitter
-    if (this._retryDelay > 0) delay = Math.round(this._retryDelay * (0.5 + Math.random() / 2))
 
     if (this._timer) clearTimeout(this._timer)
 
@@ -166,8 +166,6 @@ module.exports = class PeerDiscovery {
       return
     }
 
-    let failed = true
-
     try {
       const nDiscovered = await this._query()
 
@@ -181,16 +179,10 @@ module.exports = class PeerDiscovery {
 
         await this._query() // fast-retry before mutex release
       }
-
-      failed = false
     } finally {
       this._settlePending(snapshot)
 
       this._mutex.unlock()
-
-      this._retryDelay = failed
-        ? Math.min(this._retryDelay * 2 || RETRY_INTERVAL, MAX_RETRY_INTERVAL)
-        : 0
 
       if (this._isRunning) this._scheduleRefresh() // schedule next
     }
@@ -248,20 +240,23 @@ module.exports = class PeerDiscovery {
 
           if (++nDiscovered > this.limit) continue
 
-          this._onpeer(peer, data)
+          this._safeCallback(this._onpeer, peer, data)
         }
 
         if (Number.isSafeInteger(data.bump) && data.bump > this.bump.seen) {
           this.bump.seen = data.bump
-          this._onbump(this.bump.seen)
+          this._safeCallback(this._onbump, this.bump.seen)
         }
       }
 
       completed = true
     } catch (err) {
-      this.stats.errors++
-      if (this._isRunning) throw err // propagate unless shutting down
+      if (!this._cancelled) {
+        this.stats.errors++
+        if (this._isRunning) throw err // propagate unless shutting down
+      }
     } finally {
+      this._cancelled = false
       this._activeQuery = null
       this.lastRefreshed = Date.now()
 
@@ -276,6 +271,15 @@ module.exports = class PeerDiscovery {
     }
 
     return nDiscovered
+  }
+
+  // a consumer throwing is a consumer bug, not a discovery failure
+  _safeCallback(fn, ...args) {
+    try {
+      fn(...args)
+    } catch (err) {
+      this._onerror(err)
+    }
   }
 
   _settlePending(applied) {
@@ -342,6 +346,7 @@ module.exports = class PeerDiscovery {
       log('Aborting discovery (post wait)', id)
 
       if (this._activeQuery) {
+        this._cancelled = true
         this._activeQuery.destroy()
         this._activeQuery = null
       }
@@ -452,7 +457,6 @@ module.exports = class PeerDiscovery {
   resume() {
     if (!this.suspended) return
     this.suspended = false
-    this._retryDelay = 0
     this.refresh()
   }
 }

@@ -489,44 +489,77 @@ test('abort(false) then destroy() still unannounces', async (t) => {
   await testnet.destroy()
 })
 
-test('failed query is retried soon', async (t) => {
-  const topic = b4a.alloc(32, 6)
+test('setAnnounce() toggle mid-query must not be treated as a failed query', async (t) => {
+  const topic = b4a.alloc(32, 12)
+  const { dht, started } = makeAbortableDHT()
 
-  let calls = 0
-  let onretry = null
-  const retried = new Promise((resolve) => {
-    onretry = resolve
-  })
+  const discovery = new Discovery(dht, topic, { announce: true, seed: seed(12) })
 
-  const dht = {
-    announce() {
-      const fail = ++calls === 1
-      if (!fail) onretry()
+  discovery.refresh()
+  await started // query is now in flight, holding the mutex
 
-      return {
-        closestNodes: [],
-        destroy() {},
-        async *[Symbol.asyncIterator]() {
-          if (fail) throw new Error('Too few nodes responded')
-        }
-      }
+  t.is(discovery.stats.errors, 0, 'no error counted before the toggle')
+
+  // an ordinary, voluntary state change - not a network failure
+  discovery.setAnnounce(false)
+
+  await discovery.flush()
+
+  t.is(discovery.stats.errors, 0, 'a voluntary announce toggle is not a query error')
+
+  await discovery.destroy()
+})
+
+test('abort() mid-query must not be treated as a failed query', async (t) => {
+  const topic = b4a.alloc(32, 13)
+  const { dht, started } = makeAbortableDHT()
+
+  const discovery = new Discovery(dht, topic, { announce: true, seed: seed(13) })
+
+  discovery.refresh()
+  await started // query is now in flight, holding the mutex
+
+  t.is(discovery.stats.errors, 0, 'no error counted before the abort')
+
+  // abort() is the documented way to pause/cancel discovery - not a failure signal
+  await discovery.abort(false)
+
+  t.is(discovery.stats.errors, 0, 'a voluntary abort() is not a query error')
+
+  await discovery.destroy()
+})
+
+test('a throwing onpeer must not be treated as a failed query', async (t) => {
+  const testnet = await createTestnet()
+  const topic = b4a.alloc(32, 14)
+
+  const announcer = await spawnPeer(testnet.bootstrap, topic, { announce: true })
+  announcer.discovery.refresh()
+  await announcer.discovery.flush()
+
+  const dht = new DHT({ bootstrap: testnet.bootstrap })
+  await dht.ready()
+  const server = dht.createServer(() => {})
+  await server.listen()
+
+  const discovery = new Discovery(dht, topic, {
+    relayAddresses: () => server.relayAddresses,
+    onpeer: () => {
+      throw new Error('consumer bug')
     }
-  }
-
-  const discovery = new Discovery(dht, topic, { announce: true, seed: seed(11) })
+  })
 
   discovery.refresh()
   await discovery.flush()
-  t.is(calls, 1, 'first query failed')
 
-  const failedAt = Date.now()
-  await retried
-  t.ok(Date.now() - failedAt < 6000, 'retried after a few seconds')
-
-  await discovery.flush()
-  t.is(discovery._retryDelay, 0, 'backoff reset on success')
+  t.is(discovery.stats.errors, 0, 'a consumer callback throwing is not a query error')
+  t.is(discovery.stats.refresh, 1, 'the query still completed')
 
   await discovery.destroy()
+  await server.close()
+  await dht.destroy()
+  await announcer.destroy()
+  await testnet.destroy()
 })
 
 async function spawnPeer(bootstrap, topic, opts = {}) {
@@ -557,6 +590,41 @@ async function spawnPeer(bootstrap, topic, opts = {}) {
       if (!dht.destroyed) await dht.destroy()
     }
   }
+}
+
+// Mirrors how a real hyperdht/streamx query behaves: destroy() with no error
+// still rejects a read that hasn't completed yet, it does not resolve quietly.
+function makeAbortableDHT() {
+  let rejectCurrent = null
+  let onStarted = null
+  const started = new Promise((resolve) => {
+    onStarted = resolve
+  })
+
+  const dht = {
+    announce() {
+      return {
+        closestNodes: [],
+        destroy(err) {
+          if (rejectCurrent) {
+            rejectCurrent(err || new Error('STREAM_DESTROYED (destroy() called without an error)'))
+          }
+        },
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              onStarted()
+              return new Promise((resolve, reject) => {
+                rejectCurrent = reject
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { dht, started }
 }
 
 function seed(byte) {
