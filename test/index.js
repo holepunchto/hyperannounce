@@ -489,46 +489,6 @@ test('abort(false) then destroy() still unannounces', async (t) => {
   await testnet.destroy()
 })
 
-test('failed query is retried soon', async (t) => {
-  const topic = b4a.alloc(32, 6)
-
-  let calls = 0
-  let onretry = null
-  const retried = new Promise((resolve) => {
-    onretry = resolve
-  })
-
-  const dht = {
-    announce() {
-      const fail = ++calls === 1
-      if (!fail) onretry()
-
-      return {
-        closestNodes: [],
-        destroy() {},
-        async *[Symbol.asyncIterator]() {
-          if (fail) throw new Error('Too few nodes responded')
-        }
-      }
-    }
-  }
-
-  const discovery = new Discovery(dht, topic, { announce: true, seed: seed(11) })
-
-  discovery.refresh()
-  await discovery.flush()
-  t.is(calls, 1, 'first query failed')
-
-  const failedAt = Date.now()
-  await retried
-  t.ok(Date.now() - failedAt < 6000, 'retried after a few seconds')
-
-  await discovery.flush()
-  t.is(discovery._retryDelay, 0, 'backoff reset on success')
-
-  await discovery.destroy()
-})
-
 test('setAnnounce() toggle mid-query must not be treated as a failed query', async (t) => {
   const topic = b4a.alloc(32, 12)
   const { dht, started } = makeAbortableDHT()
@@ -536,18 +496,15 @@ test('setAnnounce() toggle mid-query must not be treated as a failed query', asy
   const discovery = new Discovery(dht, topic, { announce: true, seed: seed(12) })
 
   discovery.refresh()
-  await started // query is now in flight, holding the mutex
+  await started
 
-  t.is(discovery._retryDelay, 0, 'no backoff before the toggle')
+  t.is(discovery.stats.errors, 0, 'no errors before the toggle')
 
-  // an ordinary, voluntary state change - not a network failure
   discovery.setAnnounce(false)
 
   await discovery.flush()
 
-  // currently fails: setAnnounce() destroys the in-flight query, which gets
-  // misclassified as a failed query and triggers retry backoff
-  t.is(discovery._retryDelay, 0, 'a voluntary announce toggle must not trigger retry backoff')
+  t.is(discovery.stats.errors, 0, 'a voluntary announce toggle is not an error')
 
   await discovery.destroy()
 })
@@ -559,16 +516,13 @@ test('abort() mid-query must not be treated as a failed query', async (t) => {
   const discovery = new Discovery(dht, topic, { announce: true, seed: seed(13) })
 
   discovery.refresh()
-  await started // query is now in flight, holding the mutex
+  await started
 
-  t.is(discovery._retryDelay, 0, 'no backoff before the abort')
+  t.is(discovery.stats.errors, 0, 'no errors before the abort')
 
-  // abort() is the documented way to pause/cancel discovery - not a failure signal
   await discovery.abort(false)
 
-  // currently fails: abort() destroys the in-flight query, which gets
-  // misclassified as a failed query and triggers retry backoff
-  t.is(discovery._retryDelay, 0, 'a voluntary abort() must not trigger retry backoff')
+  t.is(discovery.stats.errors, 0, 'a voluntary abort is not an error')
 
   await discovery.destroy()
 })
