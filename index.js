@@ -170,7 +170,7 @@ module.exports = class PeerDiscovery {
       return
     }
 
-    let failed = true
+    this._retryDelay = 0
 
     try {
       const nDiscovered = await this._query()
@@ -186,15 +186,26 @@ module.exports = class PeerDiscovery {
         await this._query() // fast-retry before mutex release
       }
 
-      failed = false
+    } catch(err) {
+      // retry
+      if (!this._cancelled && (
+          err.message === 'Node was destroyed' ||
+          err.message === 'Too few nodes responded' ||
+
+          err.code === 'REQUEST_TIMEOUT' ||
+          err.code === 'IO_SUSPENDED' ||
+
+          // thrown by abort() / synonymous w/ _cancelled
+          err.code === 'STREAM_DESTROYED' ||
+          err.code === 'REQUEST_DESTROYED'
+        )
+      ) {
+        this._retryDelay = Math.min(this._retryDelay * 2 || RETRY_INTERVAL, MAX_RETRY_INTERVAL)
+      }
     } finally {
+      this._cancelled = false
       this._settlePending(snapshot)
-
       this._mutex.unlock()
-
-      this._retryDelay = failed
-        ? Math.min(this._retryDelay * 2 || RETRY_INTERVAL, MAX_RETRY_INTERVAL)
-        : 0
 
       if (this._isRunning) this._scheduleRefresh() // schedule next
     }
@@ -252,23 +263,22 @@ module.exports = class PeerDiscovery {
 
           if (++nDiscovered > this.limit) continue
 
-          this._safeCallback(this._onpeer, peer, data)
+          await this._onpeer(peer, data)
         }
 
         if (Number.isSafeInteger(data.bump) && data.bump > this.bump.seen) {
           this.bump.seen = data.bump
-          this._safeCallback(this._onbump, this.bump.seen)
+          await this._onbump(this.bump.seen)
         }
       }
 
       completed = true
     } catch (err) {
-      if (!this._cancelled) {
-        this.stats.errors++
-        if (this._isRunning) throw err // propagate unless shutting down
+      if (this._isRunning) {
+        if (!this._cancelled) this.stats.errors++
+        throw err // propagate unless shutting down
       }
     } finally {
-      this._cancelled = false
       this._activeQuery = null
       this.lastRefreshed = Date.now()
 
@@ -283,15 +293,6 @@ module.exports = class PeerDiscovery {
     }
 
     return nDiscovered
-  }
-
-  // a consumer throwing is a consumer bug, not a discovery failure
-  _safeCallback(fn, ...args) {
-    try {
-      fn(...args)
-    } catch (err) {
-      this._onerror(err)
-    }
   }
 
   _settlePending(applied) {
