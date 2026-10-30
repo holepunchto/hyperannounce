@@ -1,6 +1,6 @@
 # replicator-discovery
 
-DHT discovery session for [`replicator`](https://github.com:holepunchto/replicator)
+DHT discovery session for [`replicator`](https://github.com/holepunchto/replicator)
 
 ## Usage
 
