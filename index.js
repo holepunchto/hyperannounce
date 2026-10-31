@@ -240,12 +240,15 @@ module.exports = class PeerDiscovery {
 
           if (++nDiscovered > this.limit) continue
 
-          await this._onpeer(peer, data)
+          const p = this._onpeer(peer, data)
+          if (isPromise(p)) p.catch(this._onerror)
         }
 
         if (Number.isSafeInteger(data.bump) && data.bump > this.bump.seen) {
           this.bump.seen = data.bump
-          await this._onbump(this.bump.seen)
+
+          const p = this._onbump(this.bump.seen)
+          if (isPromise(p)) p.catch(this._onerror)
         }
       }
 
@@ -415,10 +418,8 @@ module.exports = class PeerDiscovery {
         throw new Error('unknown action: ' + action)
     }
 
-    new Promise(async (resolve) => {
-      await this._onstats(this.stats, action)
-      resolve()
-    }).catch(this._onerror)
+    const p = this._onstats(this.stats, action)
+    if (isPromise(p)) p.catch(this._onerror)
   }
 
   async _destroy() {
@@ -458,6 +459,10 @@ function hasNode(nodes, len, node) {
   }
 
   return false
+}
+
+function isPromise(p) {
+  return !!(p && typeof p.then === 'function')
 }
 
 function noop() {}

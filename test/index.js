@@ -557,6 +557,61 @@ async function spawnPeer(bootstrap, topic, opts = {}) {
   }
 }
 
+test('user callback errors are routed to onerror', async (t) => {
+  const dht = {
+    lookup() {
+      return {
+        closestNodes: [],
+        destroy() {},
+        async *[Symbol.asyncIterator]() {
+          yield { peers: [peer], bump: 1 }
+        }
+      }
+    }
+  }
+  const peer = { publicKey: b4a.alloc(32, 1) }
+  const topic = b4a.alloc(32)
+
+  const cases = [
+    ['onpeer', (err) => { throw err }],
+    ['onpeer', async (err) => { throw err }],
+    ['onbump', (err) => { throw err }],
+    ['onbump', async (err) => { throw err }],
+    ['onstats', (err) => { throw err }],
+    ['onstats', async (err) => { throw err }]
+  ]
+
+  for (const [name, callback] of cases) {
+    const expected = new Error(name)
+    const errors = []
+    let report = null
+
+    const errored = new Promise((resolve) => {
+      report = resolve
+    })
+
+    const discovery = new Discovery(
+      dht,
+      topic,
+      {
+        [name]: () => callback(expected),
+        onerror(err) {
+          errors.push(err)
+          report(err)
+        }
+      }
+    )
+
+    discovery.refresh()
+
+    t.is(await errored, expected, `${name} reaches onerror`)
+    t.is(errors.length, 1, `${name} reports once`)
+
+    await discovery.destroy()
+  }
+})
+
+
 // Mirrors how a real hyperdht/streamx query behaves: destroy() with no error
 // still rejects a read that hasn't completed yet, it does not resolve quietly.
 function makeAbortableDHT() {
