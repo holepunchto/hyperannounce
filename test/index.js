@@ -572,6 +572,7 @@ test('user callback errors are routed to onerror', async (t) => {
   const peer = { publicKey: b4a.alloc(32, 1) }
   const topic = b4a.alloc(32)
 
+  // prettier-ignore
   const cases = [
     ['onpeer', (err) => { throw err }],
     ['onpeer', async (err) => { throw err }],
@@ -590,17 +591,13 @@ test('user callback errors are routed to onerror', async (t) => {
       report = resolve
     })
 
-    const discovery = new Discovery(
-      dht,
-      topic,
-      {
-        [name]: () => callback(expected),
-        onerror(err) {
-          errors.push(err)
-          report(err)
-        }
+    const discovery = new Discovery(dht, topic, {
+      [name]: () => callback(expected),
+      onerror(err) {
+        errors.push(err)
+        report(err)
       }
-    )
+    })
 
     discovery.refresh()
 
@@ -610,7 +607,6 @@ test('user callback errors are routed to onerror', async (t) => {
     await discovery.destroy()
   }
 })
-
 
 // Mirrors how a real hyperdht/streamx query behaves: destroy() with no error
 // still rejects a read that hasn't completed yet, it does not resolve quietly.
