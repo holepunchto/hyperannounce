@@ -17,14 +17,14 @@
   ],
   "dependencies": {
     "b4a": "^1.9.0",
-    "hyperdht": "^6.34.0",
+    "hyperdht": "^6.35.0",
     "safety-catch": "^1.0.3",
     "scope-lock": "^1.2.4"
   },
   "devDependencies": {
     "brittle": "^3.19.1",
-    "lunte": "^1.8.4",
-    "prettier": "^3.9.9",
+    "lunte": "^1.8.6",
+    "prettier": "^3.9.10",
     "prettier-config-holepunch": "^2.0.0"
   },
   "scripts": {

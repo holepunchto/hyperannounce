@@ -45,6 +45,7 @@ test('announce and emit peers', async (t) => {
   const client = await spawnPeer(bootstrap, topic)
 
   server.discovery.refresh()
+  await server.discovery.flush() // announce
 
   client.seen.length = 0
   client.discovery.refresh()
@@ -106,6 +107,7 @@ test('suspend & resume', async (t) => {
   const clientB = await spawnPeer(bootstrap, topic)
 
   server.discovery.refresh()
+  await server.discovery.flush()
 
   clientA.seen.length = 0
   clientA.discovery.refresh()
@@ -245,7 +247,7 @@ test('stats', async (t) => {
   discovery.refresh()
   await discovery.flush()
 
-  t.is(discovery.stats.lookup, 2)
+  t.is(discovery.stats.lookup, 1)
   t.is(discovery.stats.announce, 0)
   t.is(discovery.stats.unannounce, 0)
 
@@ -253,7 +255,7 @@ test('stats', async (t) => {
 
   discovery.refresh()
   await discovery.flush()
-  t.is(discovery.stats.lookup, 2)
+  t.is(discovery.stats.lookup, 1)
   t.is(discovery.stats.announce, 1)
   t.is(discovery.stats.unannounce, 0)
 
@@ -261,36 +263,13 @@ test('stats', async (t) => {
 
   discovery.refresh()
   await discovery.flush()
-  t.is(discovery.stats.lookup, 2)
+  t.is(discovery.stats.lookup, 1)
   t.is(discovery.stats.announce, 1)
   t.is(discovery.stats.unannounce, 1)
 
-  t.alike(actions, ['lookup', 'lookup', 'announce', 'unannounce'])
+  t.alike(actions, ['lookup', 'announce', 'unannounce'])
 
   await peer.destroy()
-  await testnet.destroy()
-})
-
-test('parallel announces performs one-time fast-refresh', async (t) => {
-  const testnet = await createTestnet()
-  const { bootstrap } = testnet
-  const topic = b4a.alloc(32, 4)
-  const peerA = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(7) })
-  const peerB = await spawnPeer(bootstrap, topic, { announce: true, seed: seed(8) })
-
-  peerA.discovery.refresh()
-  peerB.discovery.refresh()
-
-  t.is(peerA.seen.length, 0, 'first query misses peer B')
-  t.is(peerB.seen.length, 0, 'first query misses peer A')
-
-  await Promise.all([peerA.discovery.flush(), peerB.discovery.flush()])
-
-  t.ok(hasPeer(peerA.seen, peerB.discovery.keyPair.publicKey), 'fastRetry finds B')
-  t.ok(hasPeer(peerB.seen, peerA.discovery.keyPair.publicKey), 'fastRetry finds A')
-
-  await peerB.destroy()
-  await peerA.destroy()
   await testnet.destroy()
 })
 
@@ -527,6 +506,38 @@ test('abort() mid-query must not be treated as a failed query', async (t) => {
   await discovery.destroy()
 })
 
+test('one remote peer observed by two announcing peers on same tick', async (t) => {
+  const testnet = await createTestnet()
+  const { bootstrap } = testnet
+
+  const topic = b4a.alloc(32, 1)
+  const a = await spawnPeer(bootstrap, topic, { seed: seed(1) })
+  const b = await spawnPeer(bootstrap, topic, { seed: seed(2) })
+
+  a.discovery.setAnnounce(true)
+  b.discovery.setAnnounce(true)
+
+  t.is(a.seen.length, 0)
+  t.is(b.seen.length, 0)
+
+  a.discovery.refresh()
+  b.discovery.refresh()
+
+  await Promise.all([
+    a.discovery.flush(),
+    b.discovery.flush()
+  ])
+
+  const aHasRemote = a.seen.some((p) => p.publicKey.equals(b.publicKey))
+  const bHasRemote = b.seen.some((p) => p.publicKey.equals(a.publicKey))
+
+  t.ok(aHasRemote || bHasRemote, 'remote peer discovered')
+
+  await b.destroy()
+  await a.destroy()
+  await testnet.destroy()
+})
+
 async function spawnPeer(bootstrap, topic, opts = {}) {
   const dht = new DHT({ bootstrap })
   await dht.ready()
@@ -535,20 +546,23 @@ async function spawnPeer(bootstrap, topic, opts = {}) {
   await server.listen()
 
   const seen = []
+
   const onpeer = (peerInfo) => seen.push(peerInfo)
 
   const discovery = new Discovery(dht, topic, {
     relayAddresses: () => server.relayAddresses,
-    fastRetry: 100,
     ...opts,
     onpeer
   })
+
+  const { publicKey } = discovery.keyPair
 
   return {
     dht,
     server,
     seen,
     discovery,
+    publicKey,
     async destroy() {
       await discovery.destroy()
       await server.close()
