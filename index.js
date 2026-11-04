@@ -183,7 +183,7 @@ module.exports = class PeerDiscovery {
     }
 
     if (this.announce) {
-      opts.forwardCommit = true
+      opts.lookup = true
     }
 
     const bump = this.bump.local
