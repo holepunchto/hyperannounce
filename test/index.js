@@ -525,8 +525,8 @@ test('one remote peer observed by two announcing peers on same tick', async (t) 
 
   await Promise.all([a.discovery.flush(), b.discovery.flush()])
 
-  const aHasRemote = a.seen.some((p) => p.publicKey.equals(b.publicKey))
-  const bHasRemote = b.seen.some((p) => p.publicKey.equals(a.publicKey))
+  const aHasRemote = hasPeer(a.seen, b.publicKey)
+  const bHasRemote = hasPeer(b.seen, a.publicKey)
 
   t.ok(aHasRemote || bHasRemote, 'remote peer discovered')
 
