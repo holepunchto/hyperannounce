@@ -23,8 +23,8 @@
   },
   "devDependencies": {
     "brittle": "^3.19.1",
-    "lunte": "^1.8.6",
-    "prettier": "^3.9.10",
+    "lunte": "^1.8.4",
+    "prettier": "^3.9.9",
     "prettier-config-holepunch": "^2.0.0"
   },
   "scripts": {
