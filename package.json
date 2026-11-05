@@ -17,7 +17,7 @@
   ],
   "dependencies": {
     "b4a": "^1.9.0",
-    "hyperdht": "^6.34.0",
+    "hyperdht": "^6.36.0",
     "safety-catch": "^1.0.3",
     "scope-lock": "^1.2.4"
   },
