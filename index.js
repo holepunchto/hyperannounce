@@ -258,8 +258,6 @@ module.exports = class PeerDiscovery {
         if (!announcing) this._needsUnannounce = false
       }
     }
-
-    return nDiscovered
   }
 
   _settlePending(applied) {
