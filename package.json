@@ -1,7 +1,7 @@
 {
-  "name": "replicator-discovery",
+  "name": "hyperannounce",
   "version": "1.2.4",
-  "description": "peer discovery for replicator",
+  "description": "Stateful hyperdht topic",
   "main": "index.js",
   "exports": {
     "./package": "./package.json",
@@ -34,12 +34,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/holepunchto/replicator-discovery.git"
+    "url": "https://github.com/holepunchto/hyperannounce.git"
   },
   "author": "Holepunch Inc",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/holepunchto/replicator-discovery/issues"
+    "url": "https://github.com/holepunchto/hyperannounce/issues"
   },
-  "homepage": "https://github.com/holepunchto/replicator-discovery"
+  "homepage": "https://github.com/holepunchto/hyperannounce"
 }

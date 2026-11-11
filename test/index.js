@@ -159,7 +159,7 @@ test('refresh rejects on destroy', async (t) => {
   }
 
   t.is(discovery.destroyed, true)
-  t.is(err && err.message, 'PeerDiscovery is destroyed')
+  t.is(err && err.message, 'Topic is destroyed')
 
   await peer.destroy()
   await testnet.destroy()

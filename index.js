@@ -134,7 +134,7 @@ module.exports = class PeerDiscovery {
   }
 
   refresh() {
-    if (this.destroyed) throw new Error('PeerDiscovery is destroyed')
+    if (this.destroyed) throw new Error('Topic is destroyed')
     if (this.suspended) return
 
     if (this._refreshPending) return
