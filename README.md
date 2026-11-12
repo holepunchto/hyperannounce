@@ -1,12 +1,12 @@
-# replicator-discovery
+# hyperannounce
 
-DHT discovery session for [`replicator`](https://github.com/holepunchto/replicator)
+Stateful hyperdht topic
 
 ## Usage
 
 ```js
 const DHT = require('hyperdht')
-const Discovery = require('@holepunchto/replicator-discovery')
+const Topic = require('hyperannounce')
 
 const dht = new DHT({ bootstrap })
 await dht.ready()
@@ -14,7 +14,7 @@ await dht.ready()
 const server = dht.createServer()
 await server.listen()
 
-const discovery = new Discovery(dht, topic, {
+const topic = new Topic(dht, discoveryKey, {
   announce: true,
   seed,
   relayAddresses: () => server.relayAddresses,
@@ -23,12 +23,12 @@ const discovery = new Discovery(dht, topic, {
   }
 })
 
-discovery.refresh()
-await discovery.flush()
+topic.refresh()
+await topic.flush()
 
-await discovery.suspend()
-discovery.resume()
-await discovery.destroy()
+await topic.suspend()
+topic.resume()
+await topic.destroy()
 
 await server.close()
 await dht.destroy()
@@ -36,7 +36,7 @@ await dht.destroy()
 
 ## API
 
-### `new Discovery(dht, topic, opts)`
+### `new Topic(dht, discoveryKey, opts)`
 
 Options:
 
@@ -70,7 +70,7 @@ Attributes:
 - `stats.refresh` number of completed refresh queries
 - `stats.errors` number of errors on refresh()
 
-### `discovery.setAnnounce(bool, bump = -1)`
+### `topic.setAnnounce(bool, bump = -1)`
 
 Switch mode:
 
@@ -79,37 +79,37 @@ Switch mode:
 
 For `bump` see `update()`
 
-### `discovery.update(bump)`
+### `topic.update(bump)`
 
 Updates the local bump value.
 The local value will be published on next refresh when announcing.
 
-### `discovery.refresh()`
+### `topic.refresh()`
 
 Queues an announce or lookup, also starts background discovery cycle.
 
-### `await discovery.flush()`
+### `await topic.flush()`
 
 Waits for any in-flight queries or aborts to settle.
 
-### `discovery.abort()`
+### `topic.abort()`
 
 Abort the active query and stop discovery cycle.
 Use `refresh()` to restart.
 
-### `await discovery.suspend()`
+### `await topic.suspend()`
 
 Abort the active query and unannounce if needed.
 
-### `discovery.resume()`
+### `topic.resume()`
 
 Resume and refresh.
 
-### `await discovery.destroy()`
+### `await topic.destroy()`
 
 Destroy permanently.
 
-After destroy, `refresh()` throws `Error('PeerDiscovery is destroyed')`.
+After destroy, `refresh()` throws `Error('Topic is destroyed')`.
 
 ## License
 
